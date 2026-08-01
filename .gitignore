@@ -1,0 +1,33 @@
+*.iml
+.gradle
+.kotlin
+/local.properties
+/.idea
+/.idea/caches
+/.idea/libraries
+/.idea/modules.xml
+/.idea/workspace.xml
+/.idea/navEditor.xml
+/.idea/assetWizardSettings.xml
+.DS_Store
+/build
+/captures
+.externalNativeBuild
+.cxx
+local.properties
+
+# Secrets & credential material (never commit)
+*.jks
+*.keystore
+*.p12
+*.key
+*.pem
+keystore.properties
+signing.properties
+
+# Memory/thread dumps (can contain live tokens)
+*.hprof
+*.hprof.gz
+
+# Logs
+*.log
