@@ -43,10 +43,18 @@ class RPCForegroundService : Service() {
     private var connectionTimeoutJob: Thread? = null
 
     private val serviceScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
-    private val detector = ForegroundAppDetector(this) { pkg -> onForegroundChanged(pkg) }
+    private val detector = ForegroundAppDetector(
+        this,
+        { pkg -> onForegroundChanged(pkg) },
+        isProtected = { pkg ->
+            AppDatabase.getDatabase(this).gameConfigDao().getConfig(pkg)?.isEnabled == true
+        }
+    )
     private val promptedPackages = HashSet<String>()
     @Volatile
     private var activeGamePackage: String? = null
+    @Volatile
+    private var lastPresenceStatus: String = "online"
     private var clearJob: Job? = null
     private var launcherPackage: String? = null
     @Volatile
@@ -283,6 +291,7 @@ class RPCForegroundService : Service() {
             Logger.i(">>> SENDING PRESENCE UPDATE <<<")
             Logger.d("Payload: ${presenceUpdate.toString()}")
             webSocket?.send(presenceUpdate.toString())
+            JSONObject(payload).optString("status", "online").let { lastPresenceStatus = it }
             ConnectionManager.setCurrentPresence(payload)
             true
         } catch (e: Exception) {
@@ -420,14 +429,17 @@ class RPCForegroundService : Service() {
             state = config.customState,
             largeImage = largeImage,
             smallImage = smallImage,
-            startTime = System.currentTimeMillis()
+            startTime = System.currentTimeMillis(),
+            status = config.status
         )
         Logger.d("Game presence payload: $payload")
         updatePresence(payload)
     }
 
     private fun sendClearPresence() {
-        val payload = """{"status":"online","since":0,"activities":[],"afk":false}"""
+        // Preserve the account status (online/idle/dnd/...) chosen by the user instead
+        // of always snapping back to "online" when a game's presence is cleared.
+        val payload = """{"status":"$lastPresenceStatus","since":0,"activities":[],"afk":false}"""
         updatePresence(payload)
     }
 

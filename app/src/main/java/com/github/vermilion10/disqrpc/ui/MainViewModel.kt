@@ -74,6 +74,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun updateGameConfig(config: GameConfig) {
+        viewModelScope.launch {
+            gameConfigDao.updateConfig(config)
+        }
+    }
+
     fun deleteGame(config: GameConfig) {
         viewModelScope.launch {
             gameConfigDao.deleteConfig(config)
@@ -112,7 +118,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         tokenManager.saveApplicationId(appId.trim())
     }
 
-    fun updateCustomStatus(name: String, details: String, state: String, largeImage: String, smallImage: String, startTime: Long?) {
+    fun updateCustomStatus(name: String, details: String, state: String, largeImage: String, smallImage: String, startTime: Long?, status: String = "online") {
         viewModelScope.launch {
             val appId = tokenManager.getApplicationId() ?: ""
             try {
@@ -125,7 +131,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     state = state.ifBlank { null },
                     largeImage = publicLarge,
                     smallImage = publicSmall,
-                    startTime = startTime
+                    startTime = startTime,
+                    status = status
                 )
 
                 com.github.vermilion10.disqrpc.util.Logger.d("Built Payload (ms TS): $payload")

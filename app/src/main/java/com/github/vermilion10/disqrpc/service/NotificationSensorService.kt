@@ -53,7 +53,8 @@ class NotificationSensorService : NotificationListenerService() {
                     state = config.customState,
                     largeImage = largeImage,
                     smallImage = smallImage,
-                    startTime = System.currentTimeMillis()
+                    startTime = System.currentTimeMillis(),
+                    status = config.status
                 )
                 Logger.d("Built Payload: $payload")
 

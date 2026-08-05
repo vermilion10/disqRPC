@@ -20,12 +20,17 @@ import kotlinx.coroutines.launch
 
 class ForegroundAppDetector(
     private val context: Context,
-    private val onForegroundChanged: (String?) -> Unit
+    private val onForegroundChanged: (String?) -> Unit,
+    private val isProtected: suspend (String) -> Boolean = { false }
 ) {
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
     @Volatile
     private var currentPackage: String? = null
+    @Volatile
+    private var currentPackageSince = 0L
+    @Volatile
+    private var currentPackageStillOnTop = false
     @Volatile
     private var running = false
     @Volatile
@@ -52,6 +57,8 @@ class ForegroundAppDetector(
         }
         running = true
         currentPackage = null
+        currentPackageSince = 0L
+        currentPackageStillOnTop = false
         registerScreenReceiver()
         pollJob = scope.launch {
             while (isActive && running) {
@@ -60,8 +67,23 @@ class ForegroundAppDetector(
                 if (screenOn) {
                     val pkg = queryForegroundPackage()
                     if (pkg != currentPackage) {
-                        currentPackage = pkg
-                        onForegroundChanged(pkg)
+                        // Overlay guard: windows drawn over an active, still-running
+                        // whitelisted game (autoclickers, floating windows, transparent
+                        // activities) register as the new "foreground". If the current
+                        // package was never backgrounded it is still the real top app,
+                        // so keep reporting it and let the game presence stand.
+                        val current = currentPackage
+                        val keep = current != null &&
+                            currentPackageStillOnTop &&
+                            isProtected(current)
+                        if (keep) {
+                            Logger.d("Overlay detected above $currentPackage; keeping it.")
+                        } else {
+                            currentPackage = pkg
+                            currentPackageSince = System.currentTimeMillis()
+                            currentPackageStillOnTop = true
+                            onForegroundChanged(pkg)
+                        }
                     }
                 }
                 delay(3000)
@@ -124,20 +146,36 @@ class ForegroundAppDetector(
             val beginTime = endTime - 24 * 60 * 60 * 1000L
             val events = usm.queryEvents(beginTime, endTime)
             var foreground: String? = null
+            var foregroundTime = 0L
+            var previousStillOnTop = (currentPackage == null || currentPackageSince <= 0L)
             val event = UsageEvents.Event()
             while (events.hasNextEvent()) {
                 events.getNextEvent(event)
                 when (event.eventType) {
-                    UsageEvents.Event.MOVE_TO_FOREGROUND -> foreground = event.packageName
+                    UsageEvents.Event.MOVE_TO_FOREGROUND -> {
+                        foreground = event.packageName
+                        foregroundTime = event.timeStamp
+                    }
                     UsageEvents.Event.MOVE_TO_BACKGROUND ->
                         if (event.packageName == foreground) foreground = null
                 }
+                // Did the package we currently report ever get pushed to the background
+                // after it came to the foreground? If not, an overlay may be on top of it.
+                if (event.eventType == UsageEvents.Event.MOVE_TO_BACKGROUND &&
+                    event.packageName == currentPackage &&
+                    event.timeStamp >= currentPackageSince
+                ) {
+                    previousStillOnTop = false
+                }
             }
+            currentPackageStillOnTop = previousStillOnTop
             foreground
         } catch (e: SecurityException) {
             Logger.w("UsageStats permission denied: ${e.message}")
+            currentPackageStillOnTop = false
             null
         } catch (e: Exception) {
+            currentPackageStillOnTop = false
             null
         }
     }

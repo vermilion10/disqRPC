@@ -12,7 +12,8 @@ object PresencePayloadBuilder {
         state: String? = null,
         largeImage: String? = null,
         smallImage: String? = null,
-        startTime: Long? = null
+        startTime: Long? = null,
+        status: String = "online"
     ): String {
         fun formatImage(img: String?): String {
             if (img.isNullOrBlank()) return ""
@@ -48,7 +49,7 @@ object PresencePayloadBuilder {
         }
 
         return JSONObject().apply {
-            put("status", "online")
+            put("status", status)
             put("since", 0)
             put("activities", JSONArray().put(activity))
             put("afk", false)

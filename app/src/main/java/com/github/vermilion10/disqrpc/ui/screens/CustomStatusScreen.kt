@@ -24,6 +24,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import coil.compose.AsyncImage
 import org.json.JSONObject
 import com.github.vermilion10.disqrpc.ui.MainViewModel
+import com.github.vermilion10.disqrpc.ui.StatusDropdown
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -36,6 +37,7 @@ fun CustomStatusScreen(viewModel: MainViewModel) {
     var largeImageKey by remember { mutableStateOf("") }
     var smallImageKey by remember { mutableStateOf("") }
     var startTimeEnabled by remember { mutableStateOf(true) }
+    var status by remember { mutableStateOf("online") }
 
     val largeImageLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia()
@@ -124,10 +126,16 @@ fun CustomStatusScreen(viewModel: MainViewModel) {
             Switch(checked = startTimeEnabled, onCheckedChange = { startTimeEnabled = it })
         }
 
+        StatusDropdown(
+            selected = status,
+            onSelect = { status = it },
+            modifier = Modifier.fillMaxWidth()
+        )
+
         Button(
             onClick = {
                 val startTime = if (startTimeEnabled) System.currentTimeMillis() else null
-                viewModel.updateCustomStatus(name, details, state, largeImageKey, smallImageKey, startTime)
+                viewModel.updateCustomStatus(name, details, state, largeImageKey, smallImageKey, startTime, status)
                 Toast.makeText(context, "Status Updated", Toast.LENGTH_SHORT).show()
             },
             modifier = Modifier.fillMaxWidth()

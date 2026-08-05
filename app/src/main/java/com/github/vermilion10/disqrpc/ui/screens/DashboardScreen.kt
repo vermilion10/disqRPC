@@ -2,11 +2,14 @@ package com.github.vermilion10.disqrpc.ui.screens
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.foundation.background
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -22,6 +25,7 @@ import coil.compose.AsyncImage
 import org.json.JSONObject
 import com.github.vermilion10.disqrpc.data.local.GameConfig
 import com.github.vermilion10.disqrpc.ui.MainViewModel
+import com.github.vermilion10.disqrpc.ui.StatusDropdown
 
 @Composable
 fun DashboardScreen(viewModel: MainViewModel) {
@@ -29,6 +33,7 @@ fun DashboardScreen(viewModel: MainViewModel) {
     val isScraping by viewModel.isScraping
     val currentPresence by viewModel.currentPresence.collectAsState()
     var showAddDialog by remember { mutableStateOf(false) }
+    var editingGame by remember { mutableStateOf<GameConfig?>(null) }
 
     Scaffold(
         floatingActionButton = {
@@ -87,6 +92,7 @@ fun DashboardScreen(viewModel: MainViewModel) {
                         GameCard(
                             game = game,
                             onToggle = { viewModel.toggleGameEnabled(game) },
+                            onEdit = { editingGame = game },
                             onDelete = { viewModel.deleteGame(game) }
                         )
                     }
@@ -103,12 +109,86 @@ fun DashboardScreen(viewModel: MainViewModel) {
                     }
                 )
             }
+
+            editingGame?.let { game ->
+                EditGameDialog(
+                    game = game,
+                    onDismiss = { editingGame = null },
+                    onSave = { updated ->
+                        viewModel.updateGameConfig(updated)
+                        editingGame = null
+                    }
+                )
+            }
         }
     }
 }
 
 @Composable
-fun GameCard(game: GameConfig, onToggle: () -> Unit, onDelete: () -> Unit) {
+fun EditGameDialog(
+    game: GameConfig,
+    onDismiss: () -> Unit,
+    onSave: (GameConfig) -> Unit
+) {
+    var gameName by remember(game) { mutableStateOf(game.gameName) }
+    var details by remember(game) { mutableStateOf(game.customDetails ?: "") }
+    var state by remember(game) { mutableStateOf(game.customState ?: "") }
+    var status by remember(game) { mutableStateOf(game.status) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Edit ${game.gameName}") },
+        text = {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                OutlinedTextField(
+                    value = gameName,
+                    onValueChange = { gameName = it },
+                    label = { Text("Game Name") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = details,
+                    onValueChange = { details = it },
+                    label = { Text("Details") },
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = state,
+                    onValueChange = { state = it },
+                    label = { Text("State") },
+                    modifier = Modifier.fillMaxWidth()
+                )
+                StatusDropdown(
+                    selected = status,
+                    onSelect = { status = it },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        },
+        confirmButton = {
+            Button(onClick = {
+                onSave(
+                    game.copy(
+                        gameName = gameName.ifBlank { game.gameName },
+                        customDetails = details.ifBlank { null },
+                        customState = state.ifBlank { null },
+                        status = status
+                    )
+                )
+            }) { Text("Save") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        }
+    )
+}
+
+@Composable
+fun GameCard(game: GameConfig, onToggle: () -> Unit, onEdit: () -> Unit, onDelete: () -> Unit) {
     ElevatedCard(
         modifier = Modifier.fillMaxWidth()
     ) {
@@ -121,6 +201,9 @@ fun GameCard(game: GameConfig, onToggle: () -> Unit, onDelete: () -> Unit) {
             Column(modifier = Modifier.weight(1f)) {
                 Text(text = game.gameName, style = MaterialTheme.typography.titleMedium)
                 Text(text = game.packageName, style = MaterialTheme.typography.bodySmall)
+            }
+            IconButton(onClick = onEdit) {
+                Icon(Icons.Default.Edit, contentDescription = "Edit")
             }
             IconButton(onClick = onDelete) {
                 Icon(Icons.Default.Delete, contentDescription = "Delete", tint = MaterialTheme.colorScheme.error)

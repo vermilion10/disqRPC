@@ -11,5 +11,6 @@ data class GameConfig(
     val customLargeImage: String? = null,
     val customSmallImage: String? = null,
     val customDetails: String? = null,
-    val customState: String? = null
+    val customState: String? = null,
+    val status: String = "online"
 )
