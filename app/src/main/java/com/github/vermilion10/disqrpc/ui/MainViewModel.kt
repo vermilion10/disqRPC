@@ -154,19 +154,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /** Drops the custom status; game presence (if a game is open) takes over again. */
     fun clearStatus() {
-        val payload = """
-            {
-                "status": "online",
-                "since": 0,
-                "activities": [],
-                "afk": false
-            }
-        """.trimIndent()
-
         val intent = Intent(getApplication(), RPCForegroundService::class.java).apply {
-            action = RPCForegroundService.ACTION_UPDATE_PRESENCE
-            putExtra(RPCForegroundService.EXTRA_PAYLOAD, payload)
+            action = RPCForegroundService.ACTION_CLEAR_PRESENCE
         }
         getApplication<Application>().startService(intent)
     }

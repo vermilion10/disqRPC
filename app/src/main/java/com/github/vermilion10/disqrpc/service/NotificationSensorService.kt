@@ -4,71 +4,45 @@ import android.content.Intent
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import com.github.vermilion10.disqrpc.data.local.AppDatabase
-import com.github.vermilion10.disqrpc.data.local.GameConfig
+import com.github.vermilion10.disqrpc.util.ConnectionManager
 import com.github.vermilion10.disqrpc.util.Logger
-import com.github.vermilion10.disqrpc.util.PresencePayloadBuilder
-import com.github.vermilion10.disqrpc.util.TokenManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 
+/**
+ * Fallback game signal for when Usage Access is off: a notification from a whitelisted,
+ * enabled game is passed to the service as a hint. Notifications from anything else are
+ * ignored silently, and with Usage Access on the detector is used instead.
+ */
 class NotificationSensorService : NotificationListenerService() {
 
-    private val serviceScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
-    private val assetRegistrar by lazy { com.github.vermilion10.disqrpc.util.DiscordAssetRegistrar(applicationContext) }
+    private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
     override fun onNotificationPosted(sbn: StatusBarNotification?) {
-        val packageName = sbn?.packageName ?: return
-        if (packageName == "android" || packageName == "com.android.systemui") return
+        val pkg = sbn?.packageName ?: return
+        if (pkg == packageName) return
+        if (ConnectionManager.state.value != ConnectionManager.State.CONNECTED) return
+        if (ForegroundAppDetector.hasUsageAccess(this)) return
 
-        Logger.d("Notification posted from: $packageName")
-        serviceScope.launch {
-            val db = AppDatabase.getDatabase(applicationContext)
-            var config = db.gameConfigDao().getConfig(packageName)
-
-            // Temporary test override for ADB shell notifications
-            if (packageName == "com.android.shell") {
-                config = GameConfig(
-                    packageName = "com.android.shell",
-                    gameName = "ADB Test Game",
-                    isEnabled = true,
-                    customDetails = "Testing via ADB"
+        scope.launch {
+            val config = AppDatabase.getDatabase(applicationContext).gameConfigDao().getConfig(pkg)
+            if (config?.isEnabled != true) return@launch
+            Logger.d("Notification from ${config.gameName} used as a game hint (no Usage Access)")
+            runCatching {
+                startService(
+                    Intent(this@NotificationSensorService, RPCForegroundService::class.java)
+                        .setAction(RPCForegroundService.ACTION_GAME_HINT)
+                        .putExtra(RPCForegroundService.EXTRA_PACKAGE, pkg)
                 )
-            }
-
-            if (config != null && config.isEnabled) {
-                val appId = TokenManager(applicationContext).getApplicationId() ?: ""
-                val largeImage = com.github.vermilion10.disqrpc.util.AssetResolver.resolve(
-                    applicationContext, assetRegistrar, config.customLargeImage
-                )
-                val smallImage = com.github.vermilion10.disqrpc.util.AssetResolver.resolve(
-                    applicationContext, assetRegistrar, config.customSmallImage
-                )
-                val payload = PresencePayloadBuilder.buildActivityPayload(
-                    name = config.gameName,
-                    appId = appId,
-                    details = config.customDetails ?: "Playing ${config.gameName}",
-                    state = config.customState,
-                    largeImage = largeImage,
-                    smallImage = smallImage,
-                    startTime = System.currentTimeMillis(),
-                    status = config.status
-                )
-                Logger.d("Built Payload: $payload")
-
-                val intent = Intent(this@NotificationSensorService, RPCForegroundService::class.java).apply {
-                    action = RPCForegroundService.ACTION_UPDATE_PRESENCE
-                    putExtra(RPCForegroundService.EXTRA_PAYLOAD, payload)
-                }
-                startService(intent)
             }
         }
     }
 
     override fun onDestroy() {
         super.onDestroy()
-        serviceScope.cancel()
+        scope.cancel()
     }
 }

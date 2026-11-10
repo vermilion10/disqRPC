@@ -1,5 +1,6 @@
 package com.github.vermilion10.disqrpc.service
 
+import android.app.NotificationManager
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -29,11 +30,9 @@ class WhitelistReceiver : BroadcastReceiver() {
                     dao.insertConfig(config)
                     Logger.i("Whitelisted game: ${config.gameName} ($packageName)")
                 }
-                val serviceIntent = Intent(context, RPCForegroundService::class.java).apply {
-                    action = RPCForegroundService.ACTION_APP_WHITELISTED
-                    putExtra(RPCForegroundService.EXTRA_PACKAGE, packageName)
-                }
-                runCatching { context.startService(serviceIntent) }
+                // The service watches the game list, so the new entry takes effect on its own.
+                context.getSystemService(NotificationManager::class.java)
+                    .cancel(RPCForegroundService.promptId(packageName))
             } catch (e: Exception) {
                 Logger.e("Failed to whitelist $packageName: ${e.message}")
             } finally {

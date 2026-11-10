@@ -8,37 +8,38 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.os.Build
+import android.os.PowerManager
 import android.os.Process
 import com.github.vermilion10.disqrpc.util.Logger
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
+/**
+ * Reports the app in the foreground using UsageStats events.
+ *
+ * The first poll reads the last 24 hours to find the current app; after that each poll
+ * only reads events since the previous one. Without Usage Access it keeps checking for
+ * the permission and starts as soon as it is granted, no reconnect needed.
+ */
 class ForegroundAppDetector(
     private val context: Context,
+    private val scope: CoroutineScope,
     private val onForegroundChanged: (String?) -> Unit,
     private val isProtected: suspend (String) -> Boolean = { false }
 ) {
-    private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    private val usm = context.getSystemService(UsageStatsManager::class.java)
+    private val power = context.getSystemService(PowerManager::class.java)
+
+    private var job: Job? = null
+    @Volatile private var screenOn = true
+    private var receiverRegistered = false
 
     @Volatile
-    private var currentPackage: String? = null
-    @Volatile
-    private var currentPackageSince = 0L
-    @Volatile
-    private var currentPackageStillOnTop = false
-    @Volatile
-    private var running = false
-    @Volatile
-    private var screenOn = true
-    private var pollJob: Job? = null
-
-    val foregroundPackage: String?
-        get() = currentPackage
+    var foregroundPackage: String? = null
+        private set
 
     private val screenReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
@@ -50,133 +51,114 @@ class ForegroundAppDetector(
     }
 
     fun start() {
-        if (running) return
-        if (!hasUsageAccess()) {
-            Logger.w("Foreground detection skipped: Usage Access not granted.")
-            return
-        }
-        running = true
-        currentPackage = null
-        currentPackageSince = 0L
-        currentPackageStillOnTop = false
+        if (job?.isActive == true) return
+        screenOn = power.isInteractive
         registerScreenReceiver()
-        pollJob = scope.launch {
-            while (isActive && running) {
-                // While the display is off the polled package is unreliable
-                // (and a null read would clear presence). Hold the last value.
+        job = scope.launch {
+            val tracker = ForegroundTracker()
+            var cursor = 0L
+            var waitingLogged = false
+            var lastOverlay: String? = null
+
+            while (isActive) {
+                if (!hasUsageAccess()) {
+                    if (!waitingLogged) {
+                        Logger.w("Usage Access not granted; game detection starts once it is")
+                        waitingLogged = true
+                    }
+                    cursor = 0L
+                    delay(PERMISSION_POLL_MS)
+                    continue
+                }
+                if (waitingLogged) {
+                    Logger.i("Usage Access granted, game detection started")
+                    waitingLogged = false
+                }
+
+                // While the screen is off the event stream says nothing useful, and a
+                // null read would clear the presence. Hold the last value.
                 if (screenOn) {
-                    val pkg = queryForegroundPackage()
-                    if (pkg != currentPackage) {
-                        // Overlay guard: windows drawn over an active, still-running
-                        // whitelisted game (autoclickers, floating windows, transparent
-                        // activities) register as the new "foreground". If the current
-                        // package was never backgrounded it is still the real top app,
-                        // so keep reporting it and let the game presence stand.
-                        val current = currentPackage
-                        val keep = current != null &&
-                            currentPackageStillOnTop &&
-                            isProtected(current)
-                        if (keep) {
-                            Logger.d("Overlay detected above $currentPackage; keeping it.")
-                        } else {
-                            currentPackage = pkg
-                            currentPackageSince = System.currentTimeMillis()
-                            currentPackageStillOnTop = true
-                            onForegroundChanged(pkg)
+                    val now = System.currentTimeMillis()
+                    val begin = if (cursor == 0L) now - INITIAL_WINDOW_MS else cursor
+                    if (readEvents(tracker, begin, now)) cursor = now
+
+                    when (val decision = tracker.decide(now, isProtected)) {
+                        is ForegroundTracker.Changed -> {
+                            lastOverlay = null
+                            foregroundPackage = decision.packageName
+                            onForegroundChanged(decision.packageName)
                         }
+                        is ForegroundTracker.HeldForOverlay -> if (decision.overlay != lastOverlay) {
+                            lastOverlay = decision.overlay
+                            Logger.d("${decision.overlay ?: "Overlay"} is above ${decision.kept}; keeping the game")
+                        }
+                        ForegroundTracker.Unchanged -> Unit
                     }
                 }
-                delay(3000)
+                delay(POLL_MS)
             }
         }
     }
 
     fun stop() {
-        running = false
-        pollJob?.cancel()
-        pollJob = null
-        if (screenReceiverRegistered) {
-            context.unregisterReceiver(screenReceiver)
-            screenReceiverRegistered = false
+        job?.cancel()
+        job = null
+        foregroundPackage = null
+        if (receiverRegistered) {
+            runCatching { context.unregisterReceiver(screenReceiver) }
+            receiverRegistered = false
         }
     }
 
-    private var screenReceiverRegistered = false
+    private fun readEvents(tracker: ForegroundTracker, begin: Long, end: Long): Boolean = try {
+        val events = usm.queryEvents(begin, end)
+        val event = UsageEvents.Event()
+        while (events.hasNextEvent()) {
+            events.getNextEvent(event)
+            when (event.eventType) {
+                UsageEvents.Event.ACTIVITY_RESUMED -> tracker.onResumed(event.packageName)
+                UsageEvents.Event.ACTIVITY_PAUSED -> tracker.onPaused(event.packageName, event.timeStamp)
+            }
+        }
+        true
+    } catch (e: SecurityException) {
+        Logger.w("UsageStats permission denied: ${e.message}")
+        false
+    } catch (e: Exception) {
+        Logger.w("UsageStats query failed: ${e.message}")
+        false
+    }
 
     private fun registerScreenReceiver() {
-        if (screenReceiverRegistered) return
+        if (receiverRegistered) return
         val filter = IntentFilter().apply {
             addAction(Intent.ACTION_SCREEN_ON)
             addAction(Intent.ACTION_SCREEN_OFF)
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            context.registerReceiver(screenReceiver, filter, Context.RECEIVER_EXPORTED)
+            context.registerReceiver(screenReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
         } else {
             @Suppress("UnspecifiedRegisterReceiverFlag")
             context.registerReceiver(screenReceiver, filter)
         }
-        screenReceiverRegistered = true
+        receiverRegistered = true
     }
 
-    private fun hasUsageAccess(): Boolean {
-        val appOps = context.getSystemService(Context.APP_OPS_SERVICE) as AppOpsManager
-        val mode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            appOps.unsafeCheckOpNoThrow(
+    private fun hasUsageAccess(): Boolean = hasUsageAccess(context)
+
+    companion object {
+        private const val POLL_MS = 3_000L
+        private const val PERMISSION_POLL_MS = 5_000L
+        private const val INITIAL_WINDOW_MS = 24 * 60 * 60 * 1000L
+
+        fun hasUsageAccess(context: Context): Boolean {
+            val appOps = context.getSystemService(AppOpsManager::class.java)
+            val mode = appOps.unsafeCheckOpNoThrow(
                 AppOpsManager.OPSTR_GET_USAGE_STATS,
                 Process.myUid(),
                 context.packageName
             )
-        } else {
-            @Suppress("DEPRECATION")
-            appOps.checkOpNoThrow(
-                AppOpsManager.OPSTR_GET_USAGE_STATS,
-                Process.myUid(),
-                context.packageName
-            )
-        }
-        return mode == AppOpsManager.MODE_ALLOWED
-    }
-
-    private fun queryForegroundPackage(): String? {
-        return try {
-            val usm = context.getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
-            val endTime = System.currentTimeMillis()
-            // Use a long window (24h): usage events only fire on transitions, so a game
-            // played continuously would slide out of a short window and read as "no app".
-            val beginTime = endTime - 24 * 60 * 60 * 1000L
-            val events = usm.queryEvents(beginTime, endTime)
-            var foreground: String? = null
-            var foregroundTime = 0L
-            var previousStillOnTop = (currentPackage == null || currentPackageSince <= 0L)
-            val event = UsageEvents.Event()
-            while (events.hasNextEvent()) {
-                events.getNextEvent(event)
-                when (event.eventType) {
-                    UsageEvents.Event.MOVE_TO_FOREGROUND -> {
-                        foreground = event.packageName
-                        foregroundTime = event.timeStamp
-                    }
-                    UsageEvents.Event.MOVE_TO_BACKGROUND ->
-                        if (event.packageName == foreground) foreground = null
-                }
-                // Did the package we currently report ever get pushed to the background
-                // after it came to the foreground? If not, an overlay may be on top of it.
-                if (event.eventType == UsageEvents.Event.MOVE_TO_BACKGROUND &&
-                    event.packageName == currentPackage &&
-                    event.timeStamp >= currentPackageSince
-                ) {
-                    previousStillOnTop = false
-                }
-            }
-            currentPackageStillOnTop = previousStillOnTop
-            foreground
-        } catch (e: SecurityException) {
-            Logger.w("UsageStats permission denied: ${e.message}")
-            currentPackageStillOnTop = false
-            null
-        } catch (e: Exception) {
-            currentPackageStillOnTop = false
-            null
+            return mode == AppOpsManager.MODE_ALLOWED
         }
     }
 }
