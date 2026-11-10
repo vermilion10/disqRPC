@@ -69,13 +69,22 @@ fun LoginScreen(onToken: (String) -> Unit) {
             )
         }
         if (loading) LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-        Box(modifier = Modifier.fillMaxSize()) {
+        // weight(1f) gives the WebView the leftover height; fillMaxSize in a Column leaves
+        // it unmeasured, which renders black even while the page loads.
+        Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
             AndroidView(
                 modifier = Modifier.fillMaxSize(),
                 factory = { context ->
                     WebView(context).apply {
+                        layoutParams = android.view.ViewGroup.LayoutParams(
+                            android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                            android.view.ViewGroup.LayoutParams.MATCH_PARENT
+                        )
+                        WebView.setWebContentsDebuggingEnabled(true)
                         settings.javaScriptEnabled = true
                         settings.domStorageEnabled = true
+                        settings.databaseEnabled = true
+                        settings.mediaPlaybackRequiresUserGesture = true
                         webViewClient = object : WebViewClient() {
                             override fun shouldInterceptRequest(
                                 view: WebView,
