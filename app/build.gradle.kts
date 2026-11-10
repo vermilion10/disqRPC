@@ -59,9 +59,7 @@ dependencies {
 
     // Networking
     implementation(libs.okhttp)
-    implementation(libs.retrofit)
-    implementation(libs.retrofit.converter.gson)
-    implementation(libs.jsoup)
+    implementation(libs.gson)
 
     // Storage
     implementation(libs.androidx.room.runtime)

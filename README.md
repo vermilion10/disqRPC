@@ -12,7 +12,7 @@ disqRPC runs a foreground service that connects to Discord's gateway over WebSoc
 
 - **Automatic game detection**, Uses Usage Stats to detect the foreground app and sets the corresponding Rich Presence automatically.
 - **One-tap whitelisting**, When a new app is detected, a notification lets you add it to your whitelist without leaving your game.
-- **Play Store metadata**, Fetches the app's name and icon automatically from the Google Play Store when you add a game.
+- **Official game matching**, Games listed in Discord's detectable-applications catalog are shown under their official Discord application, with the official name and icon. Other apps use their installed name.
 - **Manual presence override**, Set a custom status with your own name, details, state, and large/small images.
 - **Image support**, Local images are uploaded (via [catbox.moe](https://catbox.moe)) and registered with Discord's `external-assets` endpoint so they actually render in your presence.
 - **Manual or "Select App"**, Add games by typing a package name or by picking from your installed apps.
@@ -66,7 +66,7 @@ sequenceDiagram
         else Not whitelisted
             App-->>User: "Add game to Rich Presence?" notification
             User->>App: Tap "Add"
-            App->>App: Save GameConfig (+ Play Store metadata)
+            App->>App: Save GameConfig (+ catalog match)
             App->>Gateway: Presence Update (OP 3)
             Gateway-->>Discord: Push new presence to friends
         end
@@ -81,7 +81,7 @@ sequenceDiagram
 | --- | --- |
 | Language | Kotlin |
 | UI | Jetpack Compose (Material 3), Navigation Compose, Coil |
-| Networking | OkHttp (WebSocket + HTTP), Retrofit, Gson, Jsoup |
+| Networking | OkHttp (WebSocket + HTTP), Gson (streaming JSON) |
 | Local storage | Room (game configs), EncryptedSharedPreferences / Android Keystore (credentials) |
 | Architecture | MVVM with ViewModels + StateFlow, service-based background work |
 | Build | Gradle (Kotlin DSL), AGP 8.7.3, Kotlin 2.0.21, KSP |
@@ -126,7 +126,7 @@ Open the project in Android Studio (latest stable) and run on a device/emulator 
 ### 4. Add games
 
 - Tap the **+** button on the Dashboard to add a game by package name (e.g., `com.mojang.minecraftpe`) or pick one from your installed apps.
-- The app scrapes the game's name and icon from the Google Play Store automatically.
+- If the game is in Discord's detectable-applications catalog, its official name and icon are used automatically. Otherwise the installed app name is used, and you can set your own images by editing the game.
 - Alternatively, launch a new app while connected and tap **Add** on the whitelist prompt notification.
 
 ## Project Structure
@@ -135,10 +135,11 @@ Open the project in Android Studio (latest stable) and run on a device/emulator 
 app/src/main/java/com/github/vermilion10/disqrpc/
 ├── MainActivity.kt                  # Single-activity Compose entry point
 ├── data/
-│   ├── local/                       # Room database + GameConfig entity
-│   └── remote/                      # Google Play Store scraper
+│   ├── catalog/                     # Discord detectable-applications catalog
+│   └── local/                       # Room database + GameConfig entity
+├── gateway/                         # Discord gateway session (resume, heartbeats, reconnect)
 ├── service/
-│   ├── RPCForegroundService.kt      # WebSocket gateway connection + presence engine
+│   ├── RPCForegroundService.kt      # Foreground service: detection + presence
 │   ├── ForegroundAppDetector.kt     # UsageStats-based foreground detection
 │   ├── NotificationSensorService.kt # Notification-listener presence triggers
 │   └── WhitelistReceiver.kt         # Handles the "Add game?" notification action

@@ -30,7 +30,7 @@ import com.github.vermilion10.disqrpc.ui.StatusDropdown
 @Composable
 fun DashboardScreen(viewModel: MainViewModel) {
     val games by viewModel.allConfigs.collectAsState()
-    val isScraping by viewModel.isScraping
+    val isAddingGame by viewModel.isAddingGame
     val currentPresence by viewModel.currentPresence.collectAsState()
     var showAddDialog by remember { mutableStateOf(false) }
     var editingGame by remember { mutableStateOf<GameConfig?>(null) }
@@ -44,7 +44,7 @@ fun DashboardScreen(viewModel: MainViewModel) {
     ) { padding ->
         Box(modifier = Modifier.padding(padding)) {
             Column {
-                if (isScraping) {
+                if (isAddingGame) {
                     LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
                 }
                 LazyColumn(
@@ -74,7 +74,7 @@ fun DashboardScreen(viewModel: MainViewModel) {
                             modifier = Modifier.padding(bottom = 8.dp)
                         )
                     }
-                    if (games.isEmpty() && !isScraping) {
+                    if (games.isEmpty() && !isAddingGame) {
                         item {
                             Box(
                                 modifier = Modifier.fillParentMaxSize(),

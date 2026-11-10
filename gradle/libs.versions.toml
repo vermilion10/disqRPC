@@ -11,7 +11,7 @@ composeBom = "2024.11.00"
 appcompat = "1.7.0"
 material = "1.12.0"
 okhttp = "4.12.0"
-retrofit = "2.11.0"
+gson = "2.11.0"
 room = "2.6.1"
 securityCrypto = "1.1.0-alpha06"
 navigationCompose = "2.8.4"
@@ -40,9 +40,7 @@ androidx-material-icons-extended = { group = "androidx.compose.material", name =
 androidx-appcompat = { group = "androidx.appcompat", name = "appcompat", version.ref = "appcompat" }
 material = { group = "com.google.android.material", name = "material", version.ref = "material" }
 okhttp = { group = "com.squareup.okhttp3", name = "okhttp", version.ref = "okhttp" }
-retrofit = { group = "com.squareup.retrofit2", name = "retrofit", version.ref = "retrofit" }
-retrofit-converter-gson = { group = "com.squareup.retrofit2", name = "converter-gson", version.ref = "retrofit" }
-jsoup = { group = "org.jsoup", name = "jsoup", version = "1.18.1" }
+gson = { group = "com.google.code.gson", name = "gson", version.ref = "gson" }
 androidx-room-runtime = { group = "androidx.room", name = "room-runtime", version.ref = "room" }
 androidx-room-ktx = { group = "androidx.room", name = "room-ktx", version.ref = "room" }
 androidx-room-compiler = { group = "androidx.room", name = "room-compiler", version.ref = "room" }

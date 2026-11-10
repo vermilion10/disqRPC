@@ -15,6 +15,7 @@ import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
 import com.github.vermilion10.disqrpc.R
+import com.github.vermilion10.disqrpc.data.catalog.DetectableCatalog
 import com.github.vermilion10.disqrpc.data.local.AppDatabase
 import com.github.vermilion10.disqrpc.data.local.GameConfig
 import com.github.vermilion10.disqrpc.gateway.GatewayClient
@@ -82,6 +83,7 @@ class RPCForegroundService : Service() {
         launcherPackage = resolveHomeLauncher()
         serviceScope.launch { gateway.state.collect { onGatewayState(it) } }
         registerNetworkCallback()
+        serviceScope.launch { DetectableCatalog.get(this@RPCForegroundService).refreshIfStale() }
     }
 
     /**
@@ -271,10 +273,17 @@ class RPCForegroundService : Service() {
         }
     }
 
-    private fun sendGamePresence(config: GameConfig) {
-        val appId = tokenManager.getApplicationId() ?: ""
+    private suspend fun sendGamePresence(config: GameConfig) {
+        // Games in Discord's detectable list are sent under their official application,
+        // the same way desktop Discord reports a detected game. Everything else falls
+        // back to the user's own application id.
+        val official = DetectableCatalog.get(this).lookup(config.packageName)
+        val appId = official?.applicationId ?: tokenManager.getApplicationId().orEmpty()
+        if (official != null) {
+            Logger.i("${config.packageName} matches Discord app \"${official.name}\" (${official.applicationId})")
+        }
         val largeImage = com.github.vermilion10.disqrpc.util.AssetResolver.resolve(
-            this, assetRegistrar, config.customLargeImage
+            this, assetRegistrar, config.customLargeImage ?: official?.iconUrl
         )
         val smallImage = com.github.vermilion10.disqrpc.util.AssetResolver.resolve(
             this, assetRegistrar, config.customSmallImage
@@ -282,7 +291,8 @@ class RPCForegroundService : Service() {
         val payload = PresencePayloadBuilder.buildActivityPayload(
             name = config.gameName,
             appId = appId,
-            details = config.customDetails ?: "Playing ${config.gameName}",
+            // An official app already shows "Playing <name>"; don't repeat it as details.
+            details = config.customDetails ?: if (official == null) "Playing ${config.gameName}" else null,
             state = config.customState,
             largeImage = largeImage,
             smallImage = smallImage,

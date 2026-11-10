@@ -13,7 +13,8 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.github.vermilion10.disqrpc.data.local.AppDatabase
 import com.github.vermilion10.disqrpc.data.local.GameConfig
-import com.github.vermilion10.disqrpc.data.remote.PlayStoreScraper
+import com.github.vermilion10.disqrpc.data.catalog.DetectableCatalog
+import com.github.vermilion10.disqrpc.data.local.GameConfigFactory
 import com.github.vermilion10.disqrpc.service.RPCForegroundService
 import com.github.vermilion10.disqrpc.util.TokenManager
 import kotlinx.coroutines.Dispatchers
@@ -38,8 +39,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val username = com.github.vermilion10.disqrpc.util.ConnectionManager.username
     val currentPresence = com.github.vermilion10.disqrpc.util.ConnectionManager.currentPresence
 
-    private val _isScraping = mutableStateOf(false)
-    val isScraping: State<Boolean> = _isScraping
+    private val _isAddingGame = mutableStateOf(false)
+    val isAddingGame: State<Boolean> = _isAddingGame
+
+    init {
+        viewModelScope.launch { DetectableCatalog.get(application).refreshIfStale() }
+    }
 
     private val _installedApps = mutableStateOf<List<AppInfo>>(emptyList())
     val installedApps: State<List<AppInfo>> = _installedApps
@@ -87,24 +92,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun addGameByPackageName(packageName: String) {
+        val pkg = packageName.trim()
+        if (pkg.isEmpty()) return
         viewModelScope.launch {
-            _isScraping.value = true
-            val metadata = withContext(Dispatchers.IO) {
-                PlayStoreScraper.fetchMetadata(packageName)
+            _isAddingGame.value = true
+            try {
+                // Re-adding a package must not wipe the user's customisations.
+                if (gameConfigDao.getConfig(pkg) == null) {
+                    gameConfigDao.insertConfig(GameConfigFactory.create(getApplication(), pkg))
+                }
+            } finally {
+                _isAddingGame.value = false
             }
-            val gameName = metadata?.name ?: packageName
-            val iconUrl = metadata?.iconUrl
-            
-            gameConfigDao.insertConfig(
-                GameConfig(
-                    packageName = packageName,
-                    gameName = gameName,
-                    customLargeImage = iconUrl,
-                    isEnabled = true,
-                    customDetails = "Playing $gameName"
-                )
-            )
-            _isScraping.value = false
         }
     }
 
