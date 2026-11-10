@@ -8,6 +8,7 @@ import com.github.vermilion10.disqrpc.data.local.AppDatabase
 import com.github.vermilion10.disqrpc.util.AssetResolver
 import com.github.vermilion10.disqrpc.util.DiscordAssetRegistrar
 import com.github.vermilion10.disqrpc.util.Logger
+import com.github.vermilion10.disqrpc.util.ActivitySpec
 import com.github.vermilion10.disqrpc.util.PresencePayloadBuilder
 import com.github.vermilion10.disqrpc.util.TokenManager
 import org.json.JSONObject
@@ -45,18 +46,19 @@ class ConfigGameSource(private val context: Context) : GameSource {
         if (official != null) {
             Logger.d("$packageName is Discord app \"${official.name}\" (${official.applicationId})")
         }
-        val payload = PresencePayloadBuilder.buildActivityPayload(
-            name = config.gameName,
-            appId = official?.applicationId ?: tokens.getApplicationId().orEmpty(),
-            // An official app already shows "Playing <name>"; don't repeat it as details.
-            details = config.customDetails ?: if (official == null) "Playing ${config.gameName}" else null,
-            state = config.customState,
-            largeImage = AssetResolver.resolve(context, registrar, config.customLargeImage ?: official?.iconUrl),
-            smallImage = AssetResolver.resolve(context, registrar, config.customSmallImage),
-            startTime = startedAt,
-            status = config.status
+        return PresencePayloadBuilder.build(
+            ActivitySpec(
+                name = config.gameName,
+                appId = official?.applicationId ?: tokens.getApplicationId().orEmpty(),
+                // An official app already shows "Playing <name>"; don't repeat it as details.
+                details = config.customDetails ?: if (official == null) "Playing ${config.gameName}" else null,
+                state = config.customState,
+                largeImage = AssetResolver.resolve(context, registrar, config.customLargeImage ?: official?.iconUrl),
+                smallImage = AssetResolver.resolve(context, registrar, config.customSmallImage),
+                startTime = startedAt,
+                accountStatus = config.status
+            )
         )
-        return JSONObject(payload)
     }
 
     private fun isIgnored(packageName: String): Boolean {

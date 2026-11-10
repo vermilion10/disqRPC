@@ -18,6 +18,10 @@ import androidx.core.app.NotificationManagerCompat
 import com.github.vermilion10.disqrpc.data.catalog.DetectableApp
 import com.github.vermilion10.disqrpc.data.catalog.DetectableCatalog
 import com.github.vermilion10.disqrpc.data.catalog.DetectableGame
+import com.github.vermilion10.disqrpc.data.local.StatusPreset
+import com.github.vermilion10.disqrpc.presence.CustomStatusForm
+import com.github.vermilion10.disqrpc.util.ActivitySpec
+import com.github.vermilion10.disqrpc.util.PresencePayloadBuilder
 import com.github.vermilion10.disqrpc.gateway.GatewayIdentity
 import com.github.vermilion10.disqrpc.util.AppSettings
 import kotlinx.coroutines.flow.map
@@ -125,13 +129,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    /** Saves the credentials, or returns why they can't be used (nothing is saved then). */
-    fun saveCredentials(token: String, appId: String): String? {
+    /** Saves a user token, or returns why it can't be used (nothing is saved then). */
+    fun saveToken(token: String): String? {
         val cleanToken = token.trim().removeSurrounding("\"")
         GatewayIdentity.problemWith(cleanToken)?.let { return it }
         tokenManager.saveToken(cleanToken)
-        tokenManager.saveApplicationId(appId.trim())
         return null
+    }
+
+    fun saveApplicationId(appId: String) = tokenManager.saveApplicationId(appId.trim())
+
+    /** Disconnects and forgets the token. */
+    fun logOut() {
+        disconnect()
+        tokenManager.clearToken()
     }
 
     var allowImageUploads: Boolean
@@ -150,41 +161,69 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         getApplication<Application>().packageManager.getApplicationIcon(packageName)
     }.getOrNull()
 
+    /** The editable custom-status form, kept here so it survives tab switches. */
+    private val _customForm = mutableStateOf(CustomStatusForm())
+    val customForm: State<CustomStatusForm> = _customForm
+
+    fun updateForm(form: CustomStatusForm) {
+        _customForm.value = form
+    }
+
+    private val presetDao = database.statusPresetDao()
+    private val gson = com.google.gson.Gson()
+
+    val presets: StateFlow<List<StatusPreset>> = presetDao.getAll()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    /** Saves the current form as a named preset. */
+    fun saveCurrentAsPreset(name: String) {
+        val json = gson.toJson(_customForm.value)
+        viewModelScope.launch { presetDao.upsert(StatusPreset(name = name.trim(), formJson = json)) }
+    }
+
+    /** Loads a preset into the form; no effect if it can't be read. */
+    fun loadPreset(preset: StatusPreset) {
+        runCatching { gson.fromJson(preset.formJson, CustomStatusForm::class.java) }
+            .getOrNull()?.let { _customForm.value = it }
+    }
+
+    fun deletePreset(preset: StatusPreset) {
+        viewModelScope.launch { presetDao.delete(preset) }
+    }
+
     /** Searches every game in Discord's detectable list by name. */
     suspend fun searchOfficialGames(query: String): List<DetectableGame> = catalog.searchGames(query)
 
-    /**
-     * Sends a custom status. With [official], it is shown under that game's Discord
-     * application, using the game's icon unless [largeImage] is set.
-     */
-    fun updateCustomStatus(
-        name: String,
-        details: String,
-        state: String,
-        largeImage: String,
-        smallImage: String,
-        startTime: Long?,
-        status: String = "online",
-        official: DetectableGame? = null
-    ) {
+    /** Builds the full presence from [form], resolving images, then sends it to the service. */
+    fun applyCustomStatus(form: CustomStatusForm) {
         viewModelScope.launch {
-            val appId = official?.applicationId ?: tokenManager.getApplicationId().orEmpty()
             try {
-                val publicLarge = resolveImageUrl(largeImage.ifBlank { official?.iconUrl.orEmpty() })
-                val publicSmall = resolveImageUrl(smallImage)
-                val payload = com.github.vermilion10.disqrpc.util.PresencePayloadBuilder.buildActivityPayload(
-                    name = official?.name ?: name.ifBlank { "Custom RPC" },
+                val now = System.currentTimeMillis()
+                val (start, end) = form.resolveTimestamps(now, startOfToday())
+                val appId = form.officialAppId ?: tokenManager.getApplicationId().orEmpty()
+                val large = resolveImageUrl(form.largeImage.ifBlank { form.officialIconUrl.orEmpty() })
+                val spec = ActivitySpec(
+                    name = form.officialName ?: form.name,
                     appId = appId,
-                    details = details.ifBlank { null },
-                    state = state.ifBlank { null },
-                    largeImage = publicLarge,
-                    smallImage = publicSmall,
-                    startTime = startTime,
-                    status = status
+                    type = form.type,
+                    statusDisplay = form.statusDisplay,
+                    details = form.details.ifBlank { null },
+                    detailsUrl = form.detailsUrl.ifBlank { null },
+                    state = form.state.ifBlank { null },
+                    stateUrl = form.stateUrl.ifBlank { null },
+                    largeImage = large.ifBlank { null },
+                    largeText = form.largeText.ifBlank { null },
+                    largeUrl = form.largeUrl.ifBlank { null },
+                    smallImage = resolveImageUrl(form.smallImage).ifBlank { null },
+                    smallText = form.smallText.ifBlank { null },
+                    startTime = start,
+                    endTime = end,
+                    partySize = if (form.partyEnabled) form.partySize else null,
+                    partyMax = if (form.partyEnabled) form.partyMax else null,
+                    buttons = form.buttons,
+                    accountStatus = form.accountStatus
                 )
-
-                com.github.vermilion10.disqrpc.util.Logger.d("Built Payload (ms TS): $payload")
-
+                val payload = PresencePayloadBuilder.build(spec).toString()
                 val intent = Intent(getApplication(), RPCForegroundService::class.java).apply {
                     action = RPCForegroundService.ACTION_UPDATE_PRESENCE
                     putExtra(RPCForegroundService.EXTRA_PAYLOAD, payload)
@@ -194,6 +233,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 com.github.vermilion10.disqrpc.util.Logger.e("Error building presence: ${e.message}")
             }
         }
+    }
+
+    private fun startOfToday(): Long {
+        val cal = java.util.Calendar.getInstance()
+        cal.set(java.util.Calendar.HOUR_OF_DAY, 0)
+        cal.set(java.util.Calendar.MINUTE, 0)
+        cal.set(java.util.Calendar.SECOND, 0)
+        cal.set(java.util.Calendar.MILLISECOND, 0)
+        return cal.timeInMillis
     }
 
     private suspend fun resolveImageUrl(key: String): String {

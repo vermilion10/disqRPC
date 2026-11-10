@@ -39,9 +39,12 @@ import androidx.navigation.compose.rememberNavController
 import com.github.vermilion10.disqrpc.ui.screens.CustomStatusScreen
 import com.github.vermilion10.disqrpc.ui.screens.DashboardScreen
 import com.github.vermilion10.disqrpc.ui.screens.LogConsoleScreen
+import com.github.vermilion10.disqrpc.ui.screens.LoginScreen
 import com.github.vermilion10.disqrpc.ui.screens.SettingsScreen
 import com.github.vermilion10.disqrpc.util.ConnectionManager
 import kotlinx.coroutines.launch
+
+private const val LOGIN_ROUTE = "login"
 
 private val destinations = listOf(Screen.Dashboard, Screen.CustomStatus, Screen.Logs, Screen.Settings)
 
@@ -84,7 +87,12 @@ fun MainScreen(viewModel: MainViewModel = viewModel()) {
         Scaffold(
             topBar = {
                 TopAppBar(
-                    title = { Text(destinations.firstOrNull { it.route == current?.route }?.title ?: "disqRPC") },
+                    title = {
+                        Text(
+                            if (current?.route == LOGIN_ROUTE) "Log in to Discord"
+                            else destinations.firstOrNull { it.route == current?.route }?.title ?: "disqRPC"
+                        )
+                    },
                     actions = { ConnectionStatusChip(connectionState, username) }
                 )
             },
@@ -107,7 +115,16 @@ fun MainScreen(viewModel: MainViewModel = viewModel()) {
                     }
                     composable(Screen.CustomStatus.route) { CustomStatusScreen(viewModel, showMessage) }
                     composable(Screen.Logs.route) { LogConsoleScreen(viewModel) }
-                    composable(Screen.Settings.route) { SettingsScreen(viewModel, showMessage) }
+                    composable(Screen.Settings.route) {
+                        SettingsScreen(viewModel, showMessage, onLogIn = { navController.navigate(LOGIN_ROUTE) })
+                    }
+                    composable(LOGIN_ROUTE) {
+                        LoginScreen(onToken = { token ->
+                            val problem = viewModel.saveToken(token)
+                            navController.popBackStack()
+                            showMessage(problem ?: "Logged in. Connect from Home.")
+                        })
+                    }
                 }
             }
         }

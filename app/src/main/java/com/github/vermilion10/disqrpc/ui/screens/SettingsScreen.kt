@@ -21,6 +21,7 @@ import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.HorizontalDivider
@@ -34,6 +35,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -57,10 +59,13 @@ private data class PermissionState(
 )
 
 @Composable
-fun SettingsScreen(viewModel: MainViewModel, showMessage: (String) -> Unit) {
+fun SettingsScreen(viewModel: MainViewModel, showMessage: (String) -> Unit, onLogIn: () -> Unit) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
-    var token by remember { mutableStateOf(viewModel.tokenManager.getToken().orEmpty()) }
+    var token by remember { mutableStateOf("") }
+    var hasToken by remember { mutableStateOf(viewModel.hasToken()) }
+    var showTokenField by remember { mutableStateOf(false) }
+    val username by viewModel.username.collectAsState()
     var appId by remember { mutableStateOf(viewModel.tokenManager.getApplicationId().orEmpty()) }
     var showToken by remember { mutableStateOf(false) }
     var allowUploads by remember { mutableStateOf(viewModel.allowImageUploads) }
@@ -104,23 +109,69 @@ fun SettingsScreen(viewModel: MainViewModel, showMessage: (String) -> Unit) {
             )
         }
 
-        OutlinedTextField(
-            value = token,
-            onValueChange = { token = it },
-            label = { Text("User token") },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth(),
-            visualTransformation = if (showToken) VisualTransformation.None else PasswordVisualTransformation(),
-            trailingIcon = {
-                IconButton(onClick = { showToken = !showToken }) {
-                    Icon(
-                        imageVector = if (showToken) Icons.Default.VisibilityOff else Icons.Default.Visibility,
-                        contentDescription = if (showToken) "Hide token" else "Show token"
-                    )
+        if (hasToken) {
+            ListItem(
+                headlineContent = { Text(if (username != null) "Signed in as $username" else "Signed in") },
+                supportingContent = { Text("Your session token is stored encrypted on this device.") },
+                leadingContent = {
+                    Icon(Icons.Default.CheckCircle, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                },
+                trailingContent = {
+                    TextButton(onClick = {
+                        viewModel.logOut()
+                        hasToken = false
+                        showMessage("Logged out")
+                    }) { Text("Log out") }
                 }
-            },
-            supportingText = { Text("Stored encrypted on this device. Never share it.") }
-        )
+            )
+        } else {
+            Button(onClick = onLogIn, modifier = Modifier.fillMaxWidth()) { Text("Log in with Discord") }
+            Text(
+                "You sign in on Discord's own page inside the app. Some sign-in methods, such as " +
+                    "passkeys, may not work there; paste a token instead if that happens.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+
+        TextButton(onClick = { showTokenField = !showTokenField }) {
+            Text(if (showTokenField) "Hide token entry" else if (hasToken) "Replace token" else "Paste a token instead")
+        }
+        if (showTokenField) {
+            OutlinedTextField(
+                value = token,
+                onValueChange = { token = it },
+                label = { Text("User token") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+                visualTransformation = if (showToken) VisualTransformation.None else PasswordVisualTransformation(),
+                trailingIcon = {
+                    IconButton(onClick = { showToken = !showToken }) {
+                        Icon(
+                            imageVector = if (showToken) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                            contentDescription = if (showToken) "Hide token" else "Show token"
+                        )
+                    }
+                },
+                supportingText = { Text("Stored encrypted on this device. Never share it.") }
+            )
+            Button(
+                onClick = {
+                    val problem = viewModel.saveToken(token)
+                    if (problem == null) {
+                        token = ""
+                        hasToken = true
+                        showTokenField = false
+                    }
+                    showMessage(problem ?: "Token saved. Connect from Home.")
+                },
+                enabled = token.isNotBlank(),
+                modifier = Modifier.fillMaxWidth()
+            ) { Text("Save token") }
+        }
+
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+        SectionTitle("Fallback application")
 
         OutlinedTextField(
             value = appId,
@@ -136,13 +187,13 @@ fun SettingsScreen(viewModel: MainViewModel, showMessage: (String) -> Unit) {
             }
         )
 
-        Button(
+        FilledTonalButton(
             onClick = {
-                val problem = viewModel.saveCredentials(token, appId)
-                showMessage(problem ?: "Saved. Connect from the Dashboard.")
+                viewModel.saveApplicationId(appId)
+                showMessage("Application ID saved")
             },
             modifier = Modifier.fillMaxWidth()
-        ) { Text("Save") }
+        ) { Text("Save application ID") }
 
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
         SectionTitle("Permissions")
