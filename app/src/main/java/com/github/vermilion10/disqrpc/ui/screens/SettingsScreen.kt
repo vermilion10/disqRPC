@@ -1,173 +1,236 @@
 package com.github.vermilion10.disqrpc.ui.screens
 
+import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
 import android.provider.Settings
-import android.widget.Toast
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.ListItem
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Switch
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.github.vermilion10.disqrpc.ui.MainViewModel
 
-@OptIn(ExperimentalMaterial3Api::class)
+private data class PermissionState(
+    val notifications: Boolean,
+    val usageAccess: Boolean,
+    val batteryUnrestricted: Boolean,
+    val notificationAccess: Boolean
+)
+
 @Composable
-fun SettingsScreen(viewModel: MainViewModel) {
-    val context = androidx.compose.ui.platform.LocalContext.current
-    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
-    var token by remember { mutableStateOf(viewModel.tokenManager.getToken() ?: "") }
-    var appId by remember { mutableStateOf(viewModel.tokenManager.getApplicationId() ?: "") }
+fun SettingsScreen(viewModel: MainViewModel, showMessage: (String) -> Unit) {
+    val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+    var token by remember { mutableStateOf(viewModel.tokenManager.getToken().orEmpty()) }
+    var appId by remember { mutableStateOf(viewModel.tokenManager.getApplicationId().orEmpty()) }
     var showToken by remember { mutableStateOf(false) }
+    var allowUploads by remember { mutableStateOf(viewModel.allowImageUploads) }
 
-    var isBatteryIgnored by remember { mutableStateOf(viewModel.isBatteryOptimizationIgnored()) }
-    var isUsageGranted by remember { mutableStateOf(viewModel.isUsageAccessGranted()) }
+    fun readPermissions() = PermissionState(
+        notifications = viewModel.areNotificationsEnabled(),
+        usageAccess = viewModel.isUsageAccessGranted(),
+        batteryUnrestricted = viewModel.isBatteryOptimizationIgnored(),
+        notificationAccess = viewModel.isNotificationListenerEnabled()
+    )
+    var permissions by remember { mutableStateOf(readPermissions()) }
 
-    // Update status when returning to app
+    // Re-check when coming back from the system settings screens.
     DisposableEffect(lifecycleOwner) {
-        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
-            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
-                isBatteryIgnored = viewModel.isBatteryOptimizationIgnored()
-                isUsageGranted = viewModel.isUsageAccessGranted()
-            }
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) permissions = readPermissions()
         }
         lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose {
-            lifecycleOwner.lifecycle.removeObserver(observer)
-        }
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(16.dp)
-            .verticalScroll(rememberScrollState()),
+            .verticalScroll(rememberScrollState())
+            .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        Text(
-            text = "Connection Settings",
-            style = MaterialTheme.typography.headlineSmall
-        )
+        SectionTitle("Account")
+
+        Card(
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)
+        ) {
+            Text(
+                text = "disqRPC signs in with your Discord user token. Automating a user account " +
+                    "is against Discord's Terms of Service and can get the account disabled. " +
+                    "Use it at your own risk.",
+                modifier = Modifier.padding(12.dp),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onErrorContainer
+            )
+        }
 
         OutlinedTextField(
             value = token,
             onValueChange = { token = it },
-            label = { Text("Discord Token") },
+            label = { Text("User token") },
+            singleLine = true,
             modifier = Modifier.fillMaxWidth(),
             visualTransformation = if (showToken) VisualTransformation.None else PasswordVisualTransformation(),
             trailingIcon = {
                 IconButton(onClick = { showToken = !showToken }) {
                     Icon(
                         imageVector = if (showToken) Icons.Default.VisibilityOff else Icons.Default.Visibility,
-                        contentDescription = "Toggle Visibility"
+                        contentDescription = if (showToken) "Hide token" else "Show token"
                     )
                 }
             },
-            supportingText = {
-                Text("Your User Token. Never share this with anyone.")
-            }
+            supportingText = { Text("Stored encrypted on this device. Never share it.") }
         )
 
         OutlinedTextField(
             value = appId,
             onValueChange = { appId = it },
-            label = { Text("Master Application ID") },
+            label = { Text("Fallback application ID") },
+            singleLine = true,
             modifier = Modifier.fillMaxWidth(),
             supportingText = {
-                Text("The Client ID of your Discord Application.")
+                Text(
+                    "Used for apps that aren't in Discord's game list, and for custom statuses. " +
+                        "Listed games use their official application automatically."
+                )
             }
         )
 
         Button(
             onClick = {
-                viewModel.saveCredentials(token, appId)
-                Toast.makeText(context, "Credentials Saved", Toast.LENGTH_SHORT).show()
+                val problem = viewModel.saveCredentials(token, appId)
+                showMessage(problem ?: "Saved. Connect from the Dashboard.")
             },
             modifier = Modifier.fillMaxWidth()
-        ) {
-            Text("Save Credentials")
-        }
+        ) { Text("Save") }
 
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            Button(
-                onClick = { 
-                    viewModel.connect()
-                    Toast.makeText(context, "Connecting...", Toast.LENGTH_SHORT).show()
-                },
-                modifier = Modifier.weight(1f)
-            ) {
-                Text("Connect")
-            }
-            Button(
-                onClick = { 
-                    viewModel.disconnect()
-                    Toast.makeText(context, "Disconnected", Toast.LENGTH_SHORT).show()
-                },
-                modifier = Modifier.weight(1f),
-                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
-            ) {
-                Text("Disconnect")
-            }
-        }
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+        SectionTitle("Permissions")
 
-        Text(
-            text = "Permissions",
-            style = MaterialTheme.typography.titleMedium
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            PermissionRow(
+                title = "Notifications",
+                description = "Connection status and the \"Add game?\" prompt.",
+                granted = permissions.notifications,
+                onOpen = { context.openAppNotificationSettings() }
+            )
+        }
+        PermissionRow(
+            title = "Usage access",
+            description = "Required to detect which game is open.",
+            granted = permissions.usageAccess,
+            onOpen = { context.startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS)) }
+        )
+        PermissionRow(
+            title = "Unrestricted battery",
+            description = "Keeps the connection alive in the background.",
+            granted = permissions.batteryUnrestricted,
+            onOpen = {
+                context.startActivity(
+                    Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS)
+                        .setData(Uri.parse("package:${context.packageName}"))
+                )
+            }
+        )
+        PermissionRow(
+            title = "Notification access",
+            description = "Optional. Detects games from their notifications when usage access is off.",
+            granted = permissions.notificationAccess,
+            onOpen = { context.startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) }
         )
 
-        OutlinedButton(
-            onClick = {
-                val intent = Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)
-                context.startActivity(intent)
-            },
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Text("Grant Notification Access")
-        }
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+        SectionTitle("Privacy")
 
-        OutlinedButton(
-            onClick = {
-                val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
-                    data = Uri.parse("package:${context.packageName}")
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text("Upload images from this phone", style = MaterialTheme.typography.bodyLarge)
+                Text(
+                    "Discord can only show images that are online. When this is on, images you pick " +
+                        "from your phone are uploaded to catbox.moe, a public file host, where anyone " +
+                        "with the link can see them. Image links you paste are never uploaded.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Spacer(Modifier.width(12.dp))
+            Switch(
+                checked = allowUploads,
+                onCheckedChange = {
+                    allowUploads = it
+                    viewModel.allowImageUploads = it
                 }
-                context.startActivity(intent)
-            },
-            modifier = Modifier.fillMaxWidth(),
-            enabled = !isBatteryIgnored
-        ) {
-            Text(if (isBatteryIgnored) "Battery Optimization Disabled" else "Disable Battery Optimization")
-        }
-
-        OutlinedButton(
-            onClick = {
-                context.startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
-            },
-            modifier = Modifier.fillMaxWidth(),
-            enabled = !isUsageGranted
-        ) {
-            Text(if (isUsageGranted) "Usage Access Granted" else "Grant Usage Access")
-        }
-
-        Text(
-            text = "Developer Options",
-            style = MaterialTheme.typography.titleMedium
-        )
-        
-        OutlinedButton(
-            onClick = { /* TODO: Navigate to logs */ },
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Text("View Network Logs")
+            )
         }
     }
+}
+
+@Composable
+private fun SectionTitle(text: String) {
+    Text(text = text, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+}
+
+@Composable
+private fun PermissionRow(title: String, description: String, granted: Boolean, onOpen: () -> Unit) {
+    ListItem(
+        headlineContent = { Text(title) },
+        supportingContent = { Text(description) },
+        leadingContent = {
+            Icon(
+                imageVector = if (granted) Icons.Default.CheckCircle else Icons.Default.Warning,
+                contentDescription = if (granted) "Granted" else "Not granted",
+                tint = if (granted) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
+            )
+        },
+        trailingContent = {
+            if (!granted) TextButton(onClick = onOpen) { Text("Grant") }
+        }
+    )
+}
+
+private fun Context.openAppNotificationSettings() {
+    startActivity(
+        Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+            .putExtra(Settings.EXTRA_APP_PACKAGE, packageName)
+    )
 }

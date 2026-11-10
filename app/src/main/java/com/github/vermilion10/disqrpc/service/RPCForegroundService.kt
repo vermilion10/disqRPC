@@ -139,7 +139,7 @@ class RPCForegroundService : Service() {
                 ConnectionManager.updateState(ConnectionManager.State.CONNECTING)
             is GatewayState.Failed -> {
                 prefs.edit().putBoolean(KEY_WANT_CONNECTED, false).apply()
-                ConnectionManager.updateState(ConnectionManager.State.FAILED)
+                ConnectionManager.updateState(ConnectionManager.State.FAILED, state.reason)
                 shutDown()
             }
             GatewayState.Disconnected -> {
@@ -219,7 +219,7 @@ class RPCForegroundService : Service() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
         val notification = NotificationCompat.Builder(this, PROMPT_CHANNEL_ID)
-            .setSmallIcon(R.mipmap.ic_launcher)
+            .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle("Add $appName to Rich Presence?")
             .setContentText("Show it on your Discord profile while you play.")
             .addAction(0, "Add", add)
@@ -242,7 +242,7 @@ class RPCForegroundService : Service() {
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("disqRPC")
             .setContentText(text)
-            .setSmallIcon(R.mipmap.ic_launcher)
+            .setSmallIcon(R.drawable.ic_notification)
             .setContentIntent(open)
             .setOngoing(true)
             .build()

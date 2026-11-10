@@ -13,7 +13,14 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.github.vermilion10.disqrpc.data.local.AppDatabase
 import com.github.vermilion10.disqrpc.data.local.GameConfig
+import android.graphics.drawable.Drawable
+import androidx.core.app.NotificationManagerCompat
+import com.github.vermilion10.disqrpc.data.catalog.DetectableApp
 import com.github.vermilion10.disqrpc.data.catalog.DetectableCatalog
+import com.github.vermilion10.disqrpc.data.catalog.DetectableGame
+import com.github.vermilion10.disqrpc.gateway.GatewayIdentity
+import com.github.vermilion10.disqrpc.util.AppSettings
+import kotlinx.coroutines.flow.map
 import com.github.vermilion10.disqrpc.data.local.GameConfigFactory
 import com.github.vermilion10.disqrpc.service.RPCForegroundService
 import com.github.vermilion10.disqrpc.util.TokenManager
@@ -33,17 +40,28 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val allConfigs: StateFlow<List<GameConfig>> = gameConfigDao.getAllConfigs()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    private val appSettings = AppSettings(application)
+    private val catalog = DetectableCatalog.get(application)
+
+    /** Saved games that are in Discord's detectable list, keyed by package name. */
+    val catalogMatches: StateFlow<Map<String, DetectableApp>> = gameConfigDao.getAllConfigs()
+        .map { configs -> configs.mapNotNull { c -> catalog.lookup(c.packageName)?.let { c.packageName to it } }.toMap() }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
+
     val logs: StateFlow<List<com.github.vermilion10.disqrpc.util.Logger.LogEntry>> = com.github.vermilion10.disqrpc.util.Logger.logs
 
     val connectionState = com.github.vermilion10.disqrpc.util.ConnectionManager.state
     val username = com.github.vermilion10.disqrpc.util.ConnectionManager.username
     val currentPresence = com.github.vermilion10.disqrpc.util.ConnectionManager.currentPresence
+    val failureReason = com.github.vermilion10.disqrpc.util.ConnectionManager.failureReason
+
+    fun hasToken(): Boolean = !tokenManager.getToken().isNullOrBlank()
 
     private val _isAddingGame = mutableStateOf(false)
     val isAddingGame: State<Boolean> = _isAddingGame
 
     init {
-        viewModelScope.launch { DetectableCatalog.get(application).refreshIfStale() }
+        viewModelScope.launch { catalog.refreshIfStale() }
     }
 
     private val _installedApps = mutableStateOf<List<AppInfo>>(emptyList())
@@ -107,24 +125,55 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun saveCredentials(token: String, appId: String) {
+    /** Saves the credentials, or returns why they can't be used (nothing is saved then). */
+    fun saveCredentials(token: String, appId: String): String? {
         val cleanToken = token.trim().removeSurrounding("\"")
-        
-        // Log basic diagnostics about the token (safe)
-        com.github.vermilion10.disqrpc.util.Logger.d("Saving token: length=${cleanToken.length}, startsWithBot=${cleanToken.startsWith("Bot ", ignoreCase = true)}")
-
+        GatewayIdentity.problemWith(cleanToken)?.let { return it }
         tokenManager.saveToken(cleanToken)
         tokenManager.saveApplicationId(appId.trim())
+        return null
     }
 
-    fun updateCustomStatus(name: String, details: String, state: String, largeImage: String, smallImage: String, startTime: Long?, status: String = "online") {
+    var allowImageUploads: Boolean
+        get() = appSettings.allowImageUploads
+        set(value) { appSettings.allowImageUploads = value }
+
+    fun areNotificationsEnabled(): Boolean =
+        NotificationManagerCompat.from(getApplication<Application>()).areNotificationsEnabled()
+
+    fun isNotificationListenerEnabled(): Boolean =
+        NotificationManagerCompat.getEnabledListenerPackages(getApplication<Application>())
+            .contains(getApplication<Application>().packageName)
+
+    /** The installed app's launcher icon, for the game list. */
+    fun appIcon(packageName: String): Drawable? = runCatching {
+        getApplication<Application>().packageManager.getApplicationIcon(packageName)
+    }.getOrNull()
+
+    /** Searches every game in Discord's detectable list by name. */
+    suspend fun searchOfficialGames(query: String): List<DetectableGame> = catalog.searchGames(query)
+
+    /**
+     * Sends a custom status. With [official], it is shown under that game's Discord
+     * application, using the game's icon unless [largeImage] is set.
+     */
+    fun updateCustomStatus(
+        name: String,
+        details: String,
+        state: String,
+        largeImage: String,
+        smallImage: String,
+        startTime: Long?,
+        status: String = "online",
+        official: DetectableGame? = null
+    ) {
         viewModelScope.launch {
-            val appId = tokenManager.getApplicationId() ?: ""
+            val appId = official?.applicationId ?: tokenManager.getApplicationId().orEmpty()
             try {
-                val publicLarge = resolveImageUrl(largeImage)
+                val publicLarge = resolveImageUrl(largeImage.ifBlank { official?.iconUrl.orEmpty() })
                 val publicSmall = resolveImageUrl(smallImage)
                 val payload = com.github.vermilion10.disqrpc.util.PresencePayloadBuilder.buildActivityPayload(
-                    name = if (name.isNotBlank()) name else "Custom RPC",
+                    name = official?.name ?: name.ifBlank { "Custom RPC" },
                     appId = appId,
                     details = details.ifBlank { null },
                     state = state.ifBlank { null },

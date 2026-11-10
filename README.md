@@ -1,173 +1,122 @@
 # disqRPC
 
-Show a Discord **Rich Presence** for the games and apps you play on your Android phone.
+Show what you're playing on your Android phone as a Discord Rich Presence.
 
-disqRPC runs a foreground service that connects to Discord's gateway over WebSocket, watches which app is currently in the foreground, and automatically updates your Discord profile with a rich presence card (game name, details, state, and artwork), similar to how desktop Discord shows what you're playing.
+disqRPC runs in the background, notices when one of your games is open, and puts it on your Discord profile, the same way desktop Discord shows the game you're playing. Games that Discord already knows are shown under their official Discord application with the official name and icon.
 
-> ⚠️ **Legal note:** Logging in with a **user token** (as opposed to a bot token) violates [Discord's Terms of Service](https://discord.com/terms) and may result in your account being disabled. disqRPC supports both modes for developer flexibility, but you use your own account at your own risk. For safe, public usage, use a bot token.
-
----
+> [!WARNING]
+> disqRPC signs in to Discord with your **user token**. Automating a user account is against [Discord's Terms of Service](https://discord.com/terms) and can get the account disabled. Use it at your own risk, and never share your token.
 
 ## Features
 
-- **Automatic game detection**, Uses Usage Stats to detect the foreground app and sets the corresponding Rich Presence automatically.
-- **One-tap whitelisting**, When a new app is detected, a notification lets you add it to your whitelist without leaving your game.
-- **Official game matching**, Games listed in Discord's detectable-applications catalog are shown under their official Discord application, with the official name and icon. Other apps use their installed name.
-- **Manual presence override**, Set a custom status with your own name, details, state, and large/small images.
-- **Image support**, Local images are uploaded (via [catbox.moe](https://catbox.moe)) and registered with Discord's `external-assets` endpoint so they actually render in your presence.
-- **Manual or "Select App"**, Add games by typing a package name or by picking from your installed apps.
-- **Notification-triggered presence**, An optional Notification Listener can trigger presence for apps that notify you when a session starts.
-- **Encrypted credential storage**, Tokens are stored with `EncryptedSharedPreferences` backed by the Android Keystore.
-- **Live in-app log console**, Debug the WebSocket connection and presence payloads in real time.
-- **Auto-reconnect**, Exponential backoff (up to 10 attempts) keeps your presence alive across network changes and Discord-side reconnects.
-- **Persistent foreground service**, Runs reliably in the background with a status notification.
-
-## How it works
-
-1. You save a **Discord token** and a **Master Application ID** (from your Discord Developer Application) in Settings.
-2. You press **Connect**. The app opens a WebSocket to `wss://gateway.discord.gg` and sends an `IDENTIFY` payload — either as a bot (intents = 0) or as a desktop user (desktop client spoofing).
-3. A `ForegroundAppDetector` polls `UsageStatsManager` every few seconds. When a whitelisted game comes to the foreground, the app builds a presence payload and sends it over the WebSocket (`PRESENCE_UPDATE`, OP 3).
-4. When you leave the game (or the screen turns off), the presence is cleared after a 30-second grace period.
-
-
-```mermaid
-sequenceDiagram
-    autonumber
-    actor User
-    participant App as disqRPC App
-    participant Gateway as Discord Gateway<br/>(wss://gateway.discord.gg)
-    participant Discord as Discord Clients
-
-    rect rgb(38, 44, 60)
-        Note over App, Gateway: Phase 1 - Connect & handshake
-        User->>App: Save token + App ID, tap Connect
-        App->>App: Read token (encrypted storage)
-        App->>Gateway: Open WebSocket
-        Gateway-->>App: Hello (OP 10) + heartbeat_interval
-        App->>Gateway: Identify (OP 2) [bot or user-spoof]
-        loop Every heartbeat_interval
-            App->>Gateway: Heartbeat (OP 1)
-            Gateway-->>App: Heartbeat ACK (OP 11)
-        end
-        Gateway-->>App: READY (OP 0)
-    end
-
-    rect rgb(50, 45, 38)
-        Note over App, Discord: Phase 2 - Foreground detection
-        loop Every 3s (screen on)
-            App->>App: Poll UsageStatsManager
-        end
-        App->>App: Foreground app changed
-        App->>App: Look up GameConfig in Room
-        alt Whitelisted & enabled
-            App->>App: Resolve images (upload + external-assets register)
-            App->>Gateway: Presence Update (OP 3)
-            Gateway-->>Discord: Push new presence to friends
-        else Not whitelisted
-            App-->>User: "Add game to Rich Presence?" notification
-            User->>App: Tap "Add"
-            App->>App: Save GameConfig (+ catalog match)
-            App->>Gateway: Presence Update (OP 3)
-            Gateway-->>Discord: Push new presence to friends
-        end
-        Note over App: Game left / screen off -> clear presence after 30s
-    end
-```
-
-
-## Tech Stack
-
-| Area | Technology |
-| --- | --- |
-| Language | Kotlin |
-| UI | Jetpack Compose (Material 3), Navigation Compose, Coil |
-| Networking | OkHttp (WebSocket + HTTP), Gson (streaming JSON) |
-| Local storage | Room (game configs), EncryptedSharedPreferences / Android Keystore (credentials) |
-| Architecture | MVVM with ViewModels + StateFlow, service-based background work |
-| Build | Gradle (Kotlin DSL), AGP 8.7.3, Kotlin 2.0.21, KSP |
+- **Automatic game detection.** Uses Android's usage statistics to see which app is open and updates your presence on its own.
+- **Official game matching.** Games in Discord's [detectable applications](https://discord.com/api/v10/applications/detectable) list (about 1,700 Android packages) appear with their official name and icon, like a game detected by desktop Discord.
+- **One-tap adding.** When you open a new app, a notification asks whether to add it. You can also add games from your installed apps or by package name.
+- **Stable elapsed time.** Switching away from a game for less than 30 seconds keeps its timer; leaving for longer clears the presence.
+- **Custom status.** Set your own name, details, state and images, or pick any of the ~25,000 games Discord lists to use its official name and icon. A custom status stays on until you clear it, then game presence takes over again.
+- **Reliable connection.** Resumes the Discord session after short drops instead of signing in again, waits for the network instead of retrying while offline (VPN-aware), and reconnects after Android restarts the app.
+- **Private by default.** Your token is stored encrypted with the Android Keystore. Images from your phone are only uploaded when you turn that on.
+- **Material You design.** Dynamic color, light and dark themes, a navigation rail on tablets and foldables, and a themed launcher icon.
+- **Log console.** See connection and presence events as they happen, with optional debug detail.
 
 ## Requirements
 
-- Android **9 (API 29)** or higher
-- **Usage Access** permission (to detect foreground apps)
-- **Notification Access** (optional, for notification-triggered presence)
-- A Discord **user token** or **bot token**, plus a Discord **Application ID**
+- Android 10 (API 29) or later
+- A Discord account and its user token
+- A Discord application ID, used for apps that aren't in Discord's game list and for custom statuses
 
-## Getting Started
+## Installation
 
-### 1. Build the app
+Build the APK from source (see [Building](#building)) and install it on your phone, for example with `adb install app/build/outputs/apk/debug/app-debug.apk`.
 
-Clone the repo and build with Gradle:
+## Setup
+
+1. **Create a Discord application.** In the [Discord Developer Portal](https://discord.com/developers/applications), create an application and copy its **Application ID**. Its name is what Discord shows for apps that aren't in the game list.
+2. **Add your credentials.** Open **Settings**, paste your user token and the application ID, and tap **Save**.
+3. **Grant permissions.** The Settings screen shows what is missing:
+   - **Notifications**: the connection status and the "Add game?" prompt.
+   - **Usage access**: required to detect which game is open.
+   - **Unrestricted battery**: keeps the connection alive in the background.
+   - **Notification access** (optional): detects games from their notifications when usage access is off.
+4. **Connect.** On the **Home** tab, tap **Connect**.
+
+## Usage
+
+### Showing a game
+
+Open a game while connected. The first time, tap **Add** on the "Add to Rich Presence?" notification. From then on, the game appears on your profile whenever it is open and disappears 30 seconds after you leave it.
+
+You can also tap **Add game** on the Home tab and choose from your installed apps or type a package name such as `com.mojang.minecraftpe`.
+
+Tap a game in the list to rename it, set details, state, an image link or the account status to use while playing, or to remove it. The switch turns a game on or off without removing it.
+
+### Custom status
+
+The **Status** tab sets a presence by hand. Fill in the fields, preview it, and tap **Set status**. **Clear** removes it.
+
+To appear as playing a specific game, tap **Choose** under **Official game** and search Discord's game list. The status is then shown under that game's official Discord application with its icon; details, state and images can still be added.
+
+Discord can only show images that are online. Paste an image link, or pick an image from your phone after turning on **Upload images from this phone** in Settings. Picked images are then uploaded to [catbox.moe](https://catbox.moe), a public file host where anyone with the link can see them.
+
+## How it works
+
+disqRPC keeps one connection to the Discord gateway in a foreground service:
+
+1. It signs in, sends heartbeats, and resumes the same session after a disconnect when Discord allows it.
+2. A detector reads Android usage events every few seconds to find the app in the foreground. Overlays drawn on top of a running game, such as floating windows, don't count as leaving it.
+3. A presence engine decides what to show (custom status, then the open game, then nothing) and only sends an update when something changes.
+4. Discord's detectable applications list is cached on the device and refreshed weekly, so matching a package to its official game, or searching it for a custom status, needs no network request.
+
+## Building
+
+Requirements: JDK 17 and the Android SDK (Android Studio's bundled JDK works).
 
 ```bash
-git clone https://github.com/vermilion10/disqrpc.git
-cd disqrpc
+git clone https://github.com/vermilion10/disqRPC.git
+cd disqRPC
 ./gradlew assembleDebug
 ```
 
-Open the project in Android Studio (latest stable) and run on a device/emulator running API 29+.
+The APK is written to `app/build/outputs/apk/debug/`. Run the unit tests with:
 
-### 2. Create a Discord application
+```bash
+./gradlew testDebugUnitTest
+```
 
-1. Go to the [Discord Developer Portal](https://discord.com/developers/applications) and create a new application.
-2. Copy its **Application ID** (the "Client ID").
-3. If using a bot: create a bot in the **Bot** tab and copy its **Token**.
+## Tech stack
 
-### 3. Configure the app
+| Area | Technology |
+| --- | --- |
+| Language | Kotlin, coroutines |
+| UI | Jetpack Compose, Material 3, adaptive navigation suite, Coil |
+| Networking | OkHttp (WebSocket and HTTP), Gson streaming parser |
+| Storage | Room, EncryptedSharedPreferences |
 
-1. Open the **Settings** tab.
-2. Paste your token and the Application ID, then tap **Save Credentials**.
-3. Grant the requested permissions:
-   - **Notification Access** — `Settings → Special access`
-   - **Disable Battery Optimization** — recommended for reliable background detection
-   - **Usage Access** — `Settings → Security & privacy → Usage access` (must be enabled for game detection)
-4. Tap **Connect**. The status indicator in the top bar should turn green once connected.
-
-### 4. Add games
-
-- Tap the **+** button on the Dashboard to add a game by package name (e.g., `com.mojang.minecraftpe`) or pick one from your installed apps.
-- If the game is in Discord's detectable-applications catalog, its official name and icon are used automatically. Otherwise the installed app name is used, and you can set your own images by editing the game.
-- Alternatively, launch a new app while connected and tap **Add** on the whitelist prompt notification.
-
-## Project Structure
+## Project structure
 
 ```
 app/src/main/java/com/github/vermilion10/disqrpc/
-├── MainActivity.kt                  # Single-activity Compose entry point
+├── gateway/     Discord gateway session: handshake, heartbeats, resume, reconnect
+├── presence/    Presence engine and the game source built on saved games
 ├── data/
-│   ├── catalog/                     # Discord detectable-applications catalog
-│   └── local/                       # Room database + GameConfig entity
-├── gateway/                         # Discord gateway session (resume, heartbeats, reconnect)
-├── service/
-│   ├── RPCForegroundService.kt      # Foreground service: detection + presence
-│   ├── ForegroundAppDetector.kt     # UsageStats-based foreground detection
-│   ├── NotificationSensorService.kt # Notification-listener presence triggers
-│   └── WhitelistReceiver.kt         # Handles the "Add game?" notification action
-├── ui/
-│   ├── MainScreen.kt                # Scaffold, top bar, bottom navigation
-│   ├── MainViewModel.kt             # ViewModel + credential/permission helpers
-│   └── screens/                     # Dashboard, CustomStatus, Logs, Settings
-└── util/
-    ├── ConnectionManager.kt         # Global connection/presence state (StateFlow)
-    ├── PresencePayloadBuilder.kt    # Builds Rich Presence JSON payloads
-    ├── AssetResolver.kt             # Resolves image values → mp: keys
-    ├── DiscordAssetRegistrar.kt     # Registers URLs via external-assets API
-    ├── ImageUploader.kt             # Uploads local images to catbox.moe
-    ├── TokenManager.kt              # Encrypted credential storage
-    └── Logger.kt                    # In-app log buffer (max 200 entries)
+│   ├── catalog/ Discord detectable-applications catalog
+│   └── local/   Room database and saved game configs
+├── service/     Foreground service, app detector, notification listener
+├── ui/          Compose screens, components and theme
+└── util/        Credentials, settings, image handling, logging
 ```
 
 ## Permissions
 
-| Permission | Purpose |
+| Permission | Why |
 | --- | --- |
-| `INTERNET` | WebSocket + HTTP API calls |
-| `FOREGROUND_SERVICE` / `FOREGROUND_SERVICE_SPECIAL_USE` | Persistent gateway service |
-| `POST_NOTIFICATIONS` | Service + whitelist prompt notifications |
-| `BIND_NOTIFICATION_LISTENER_SERVICE` | Notification-triggered presence |
-| `PACKAGE_USAGE_STATS` | Detect the foreground app |
-| `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` | Keep detection alive in the background |
+| `INTERNET`, `ACCESS_NETWORK_STATE` | Connect to Discord and notice when the network comes back |
+| `FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_SPECIAL_USE` | Keep the connection running in the background |
+| `POST_NOTIFICATIONS` | Connection status and the add-game prompt |
+| `PACKAGE_USAGE_STATS` | Detect which app is open |
+| `BIND_NOTIFICATION_LISTENER_SERVICE` | Optional detection from game notifications |
+| `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` | Ask to keep running with battery optimization off |
 
-## License
+## Disclaimer
 
-This project is provided for educational and personal use. It is not affiliated with or endorsed by Discord Inc.
+disqRPC is an independent project and is not affiliated with or endorsed by Discord Inc. Discord is a trademark of Discord Inc.

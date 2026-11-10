@@ -311,11 +311,13 @@ class GatewayClientTest {
     }
 
     @Test
-    fun botTokenPrefixIsStrippedForIdentify() {
-        val id = GatewayIdentity.fromToken("Bot abc.def")!!
-        assertTrue(id.isBot)
-        assertEquals("abc.def", id.identifyPayload(null).getString("token"))
-        assertEquals(0, id.identifyPayload(null).getInt("intents"))
+    fun botTokenIsRejectedWithoutOpeningSocket() = runTest {
+        val client = client(token = "Bot abc.def")
+        client.connect()
+        runCurrent()
+        val state = client.state.value as GatewayState.Failed
+        assertTrue(state.reason.startsWith("Bot tokens are not supported"))
+        assertTrue(transport.connections.isEmpty())
     }
 
     private companion object {

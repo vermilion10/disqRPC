@@ -1,224 +1,359 @@
 package com.github.vermilion10.disqrpc.ui.screens
 
-import android.widget.Toast
-import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.Alignment
-import androidx.compose.foundation.background
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Image
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.ContentScale
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
-import coil.compose.AsyncImage
-import org.json.JSONObject
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AddPhotoAlternate
+import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.ListItem
+import androidx.compose.material3.ListItemDefaults
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Switch
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.OutlinedCard
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.saveable.Saver
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.draw.clip
+import com.github.vermilion10.disqrpc.data.catalog.DetectableGame
+import com.github.vermilion10.disqrpc.ui.components.ArtworkImage
+import kotlinx.coroutines.delay
 import com.github.vermilion10.disqrpc.ui.MainViewModel
 import com.github.vermilion10.disqrpc.ui.StatusDropdown
+import com.github.vermilion10.disqrpc.ui.components.PresenceCard
+import com.github.vermilion10.disqrpc.ui.components.PresenceInfo
+import com.github.vermilion10.disqrpc.util.AssetResolver
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun CustomStatusScreen(viewModel: MainViewModel) {
-    val context = LocalContext.current
-    
-    var name by remember { mutableStateOf("") }
-    var details by remember { mutableStateOf("") }
-    var state by remember { mutableStateOf("") }
-    var largeImageKey by remember { mutableStateOf("") }
-    var smallImageKey by remember { mutableStateOf("") }
-    var startTimeEnabled by remember { mutableStateOf(true) }
-    var status by remember { mutableStateOf("online") }
-
-    val largeImageLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.PickVisualMedia()
-    ) { uri -> uri?.let { largeImageKey = it.toString() } }
-
-    val smallImageLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.PickVisualMedia()
-    ) { uri -> uri?.let { smallImageKey = it.toString() } }
+fun CustomStatusScreen(viewModel: MainViewModel, showMessage: (String) -> Unit) {
+    var name by rememberSaveable { mutableStateOf("") }
+    var details by rememberSaveable { mutableStateOf("") }
+    var state by rememberSaveable { mutableStateOf("") }
+    var largeImage by rememberSaveable { mutableStateOf("") }
+    var smallImage by rememberSaveable { mutableStateOf("") }
+    var showElapsed by rememberSaveable { mutableStateOf(true) }
+    var status by rememberSaveable { mutableStateOf("online") }
+    val previewStart = remember { System.currentTimeMillis() }
+    var official by rememberSaveable(stateSaver = OfficialGameSaver) { mutableStateOf<DetectableGame?>(null) }
+    var showPicker by rememberSaveable { mutableStateOf(false) }
 
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(16.dp)
-            .verticalScroll(rememberScrollState()),
+            .verticalScroll(rememberScrollState())
+            .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        Text(
-            text = "Manual Presence Override",
-            style = MaterialTheme.typography.headlineSmall
+        Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)) {
+            Row(
+                modifier = Modifier.padding(16.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Icon(Icons.Outlined.Info, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                Text(
+                    "A custom status replaces game presence and stays until you clear it. " +
+                        "Clearing it brings back the game you're playing, if any.",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+            }
+        }
+
+        Text("Preview", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
+        PresenceCard(
+            PresenceInfo(
+                name = official?.name ?: name.ifBlank { "Custom status" },
+                details = details.ifBlank { null },
+                state = state.ifBlank { null },
+                largeImage = PresenceInfo.imageUrl(largeImage) ?: official?.iconUrl,
+                smallImage = PresenceInfo.imageUrl(smallImage),
+                startedAt = if (showElapsed) previewStart else null
+            )
         )
 
-        // Live Preview
-        Text(text = "Live Preview", style = MaterialTheme.typography.labelMedium)
-        PresencePreview(
-            name = if (name.isBlank()) "Custom RPC" else name,
-            details = details,
-            state = state,
-            largeImage = largeImageKey,
-            smallImage = smallImageKey
+        OfficialGameField(
+            selected = official,
+            onChoose = { showPicker = true },
+            onClear = { official = null }
         )
 
-        OutlinedTextField(
-            value = name,
-            onValueChange = { name = it },
-            label = { Text("Game Name") },
-            placeholder = { Text("e.g., Custom RPC") },
-            modifier = Modifier.fillMaxWidth()
-        )
-
+        if (official == null) {
+            OutlinedTextField(
+                value = name,
+                onValueChange = { name = it },
+                label = { Text("Name") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
         OutlinedTextField(
             value = details,
             onValueChange = { details = it },
-            label = { Text("Details") },
-            placeholder = { Text("e.g., Working on an Assignment") },
+            label = { Text("Details (optional)") },
+            singleLine = true,
             modifier = Modifier.fillMaxWidth()
         )
-
         OutlinedTextField(
             value = state,
             onValueChange = { state = it },
-            label = { Text("State") },
-            placeholder = { Text("e.g., Programming in Kotlin") },
+            label = { Text("State (optional)") },
+            singleLine = true,
             modifier = Modifier.fillMaxWidth()
         )
 
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedTextField(
-                value = largeImageKey,
-                onValueChange = { largeImageKey = it },
-                label = { Text("Large Image Key/URL") },
-                modifier = Modifier.weight(1f)
-            )
-            IconButton(onClick = { largeImageLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }) {
-                Icon(Icons.Default.Image, contentDescription = "Pick Image")
-            }
-        }
-
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedTextField(
-                value = smallImageKey,
-                onValueChange = { smallImageKey = it },
-                label = { Text("Small Image Key/URL") },
-                modifier = Modifier.weight(1f)
-            )
-            IconButton(onClick = { smallImageLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }) {
-                Icon(Icons.Default.Image, contentDescription = "Pick Image")
-            }
-        }
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text("Show Elapsed Time")
-            Switch(checked = startTimeEnabled, onCheckedChange = { startTimeEnabled = it })
-        }
-
-        StatusDropdown(
-            selected = status,
-            onSelect = { status = it },
-            modifier = Modifier.fillMaxWidth()
+        ImageField(
+            label = "Large image",
+            value = largeImage,
+            onValueChange = { largeImage = it },
+            uploadsAllowed = viewModel.allowImageUploads
+        )
+        ImageField(
+            label = "Small image",
+            value = smallImage,
+            onValueChange = { smallImage = it },
+            uploadsAllowed = viewModel.allowImageUploads
         )
 
-        Button(
-            onClick = {
-                val startTime = if (startTimeEnabled) System.currentTimeMillis() else null
-                viewModel.updateCustomStatus(name, details, state, largeImageKey, smallImageKey, startTime, status)
-                Toast.makeText(context, "Status Updated", Toast.LENGTH_SHORT).show()
-            },
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Text("Set Custom Status")
-        }
+        ListItem(
+            headlineContent = { Text("Show elapsed time") },
+            trailingContent = { Switch(checked = showElapsed, onCheckedChange = { showElapsed = it }) },
+            colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surface)
+        )
 
-        OutlinedButton(
-            onClick = { 
-                viewModel.clearStatus()
-                Toast.makeText(context, "Status Cleared", Toast.LENGTH_SHORT).show()
-            },
-            modifier = Modifier.fillMaxWidth(),
-            colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)
-        ) {
-            Text("Clear Status")
+        StatusDropdown(selected = status, onSelect = { status = it }, modifier = Modifier.fillMaxWidth())
+
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(
+                onClick = {
+                    viewModel.clearStatus()
+                    showMessage("Custom status cleared")
+                },
+                modifier = Modifier.weight(1f)
+            ) { Text("Clear") }
+            Button(
+                onClick = {
+                    val start = if (showElapsed) System.currentTimeMillis() else null
+                    viewModel.updateCustomStatus(name, details, state, largeImage, smallImage, start, status, official)
+                    showMessage("Custom status set")
+                },
+                modifier = Modifier.weight(1f)
+            ) { Text("Set status") }
         }
+    }
+
+    if (showPicker) {
+        OfficialGamePicker(
+            search = viewModel::searchOfficialGames,
+            onPick = {
+                official = it
+                showPicker = false
+            },
+            onDismiss = { showPicker = false }
+        )
     }
 }
 
+/** Keeps the chosen game across tab switches and configuration changes. */
+private val OfficialGameSaver = Saver<DetectableGame?, List<String?>>(
+    save = { game -> game?.let { listOf(it.applicationId, it.name, it.iconHash) } ?: emptyList() },
+    restore = { saved -> if (saved.size == 3) DetectableGame(saved[0]!!, saved[1]!!, saved[2]) else null }
+)
+
+/** Shows the chosen official game, or a prompt to choose one. */
 @Composable
-fun PresencePreview(
-    name: String,
-    details: String,
-    state: String,
-    largeImage: String,
-    smallImage: String
-) {
-    fun resolveImageUrl(key: String): String {
-        return if (key.startsWith("mp:external/https/")) {
-            "https://" + key.substring("mp:external/https/".length)
-        } else key
-    }
-
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF1E1F22))
-    ) {
-        Row(
-            modifier = Modifier.padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Box(modifier = Modifier.size(64.dp)) {
-                if (largeImage.isNotBlank()) {
-                    AsyncImage(
-                        model = resolveImageUrl(largeImage),
-                        contentDescription = null,
-                        modifier = Modifier
-                            .size(64.dp)
-                            .clip(RoundedCornerShape(8.dp)),
-                        contentScale = ContentScale.Crop
-                    )
+private fun OfficialGameField(selected: DetectableGame?, onChoose: () -> Unit, onClear: () -> Unit) {
+    OutlinedCard(modifier = Modifier.fillMaxWidth()) {
+        ListItem(
+            colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surface),
+            leadingContent = {
+                ArtworkImage(
+                    model = selected?.iconUrl,
+                    modifier = Modifier
+                        .size(48.dp)
+                        .clip(MaterialTheme.shapes.medium)
+                )
+            },
+            headlineContent = { Text(selected?.name ?: "Official game") },
+            supportingContent = {
+                Text(
+                    if (selected != null) "Shown under the game's official Discord app"
+                    else "Optional. Use the name and icon of any game Discord lists."
+                )
+            },
+            trailingContent = {
+                if (selected != null) {
+                    IconButton(onClick = onClear) { Icon(Icons.Default.Clear, contentDescription = "Remove game") }
                 } else {
-                    Box(
-                        modifier = Modifier
-                            .size(64.dp)
-                            .background(Color.DarkGray, RoundedCornerShape(8.dp))
-                    )
+                    FilledTonalButton(onClick = onChoose) { Text("Choose") }
                 }
-
-                if (smallImage.isNotBlank()) {
-                    AsyncImage(
-                        model = resolveImageUrl(smallImage),
-                        contentDescription = null,
-                        modifier = Modifier
-                            .size(24.dp)
-                            .align(Alignment.BottomEnd)
-                            .clip(CircleShape)
-                            .background(Color(0xFF1E1F22))
-                            .padding(2.dp)
-                            .clip(CircleShape),
-                        contentScale = ContentScale.Crop
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.width(16.dp))
-
-            Column {
-                Text(text = name, color = Color.White, style = MaterialTheme.typography.titleSmall)
-                if (details.isNotBlank()) Text(text = details, color = Color.LightGray, style = MaterialTheme.typography.bodySmall)
-                if (state.isNotBlank()) Text(text = state, color = Color.LightGray, style = MaterialTheme.typography.bodySmall)
-            }
-        }
+            },
+            modifier = Modifier.clickable(onClick = onChoose)
+        )
     }
+}
+
+/** Searches Discord's detectable list (about 25,000 games) by name. */
+@Composable
+private fun OfficialGamePicker(
+    search: suspend (String) -> List<DetectableGame>,
+    onPick: (DetectableGame) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var query by rememberSaveable { mutableStateOf("") }
+    var results by remember { mutableStateOf<List<DetectableGame>>(emptyList()) }
+    var searching by remember { mutableStateOf(false) }
+
+    LaunchedEffect(query) {
+        if (query.isBlank()) {
+            results = emptyList()
+            return@LaunchedEffect
+        }
+        delay(250) // let typing settle before querying
+        searching = true
+        results = search(query)
+        searching = false
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Choose a game") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = { query = it },
+                    placeholder = { Text("Search games") },
+                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Box(
+                    modifier = Modifier
+                        .heightIn(min = 160.dp, max = 400.dp)
+                        .fillMaxWidth()
+                ) {
+                    when {
+                        searching && results.isEmpty() ->
+                            CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
+                        query.isBlank() -> CenteredHint("Type a game name, for example Minecraft or Valorant.")
+                        results.isEmpty() -> CenteredHint("No games found.")
+                        else -> LazyColumn {
+                            items(results, key = { it.applicationId }) { game ->
+                                ListItem(
+                                    colors = ListItemDefaults.colors(
+                                        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+                                    ),
+                                    leadingContent = {
+                                        ArtworkImage(
+                                            model = game.iconUrl,
+                                            modifier = Modifier
+                                                .size(40.dp)
+                                                .clip(MaterialTheme.shapes.small)
+                                        )
+                                    },
+                                    headlineContent = { Text(game.name) },
+                                    modifier = Modifier.clickable { onPick(game) }
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
+    )
+}
+
+@Composable
+private fun BoxScope.CenteredHint(text: String) {
+    Text(
+        text = text,
+        style = MaterialTheme.typography.bodyMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier
+            .align(Alignment.Center)
+            .padding(16.dp)
+    )
+}
+
+@Composable
+private fun ImageField(
+    label: String,
+    value: String,
+    onValueChange: (String) -> Unit,
+    uploadsAllowed: Boolean
+) {
+    val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        uri?.let { onValueChange(it.toString()) }
+    }
+    val local = AssetResolver.isLocal(value)
+    OutlinedTextField(
+        value = if (local) "Picked from this phone" else value,
+        onValueChange = { if (!local) onValueChange(it) },
+        readOnly = local,
+        label = { Text("$label (optional)") },
+        placeholder = { Text("https://...") },
+        singleLine = true,
+        isError = local && !uploadsAllowed,
+        supportingText = {
+            Text(
+                when {
+                    local && !uploadsAllowed -> "Turn on image uploads in Settings, or paste an image link."
+                    local -> "Will be uploaded to catbox.moe when you set the status."
+                    else -> "Paste an image link or pick one from your phone."
+                }
+            )
+        },
+        trailingIcon = {
+            if (value.isNotEmpty()) {
+                IconButton(onClick = { onValueChange("") }) {
+                    Icon(Icons.Default.Clear, contentDescription = "Remove $label")
+                }
+            } else {
+                IconButton(onClick = {
+                    picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                }) {
+                    Icon(Icons.Default.AddPhotoAlternate, contentDescription = "Pick $label")
+                }
+            }
+        },
+        modifier = Modifier.fillMaxWidth()
+    )
 }

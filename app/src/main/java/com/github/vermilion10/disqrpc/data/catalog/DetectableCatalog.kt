@@ -30,16 +30,21 @@ class DetectableCatalog private constructor(context: Context) {
 
     suspend fun lookup(packageName: String): DetectableApp? = dao.get(packageName)
 
+    suspend fun searchGames(query: String): List<DetectableGame> =
+        if (query.isBlank()) emptyList() else dao.searchGames(query.trim())
+
+    private suspend fun hasData() = dao.count() > 0 && dao.gameCount() > 0
+
     suspend fun refreshIfStale() {
         val age = System.currentTimeMillis() - prefs.getLong(KEY_LAST_REFRESH, 0L)
-        if (age in 0 until REFRESH_INTERVAL_MS && dao.count() > 0) return
+        if (age in 0 until REFRESH_INTERVAL_MS && hasData()) return
         refresh()
     }
 
     /** Returns true when the local table is usable afterwards (fresh, unchanged or kept). */
     suspend fun refresh(): Boolean = withContext(Dispatchers.IO) {
         refreshLock.withLock {
-            val haveRows = dao.count() > 0
+            val haveRows = hasData()
             val etag = prefs.getString(KEY_ETAG, null).takeIf { haveRows }
             val request = Request.Builder()
                 .url(ENDPOINT)
@@ -57,14 +62,17 @@ class DetectableCatalog private constructor(context: Context) {
                         }
                         response.isSuccessful -> {
                             val body = response.body ?: return@use haveRows
-                            val apps = body.charStream().use(DetectableParser::parse)
-                            if (apps.isEmpty()) {
+                            val parsed = body.charStream().use(DetectableParser::parse)
+                            if (parsed.games.isEmpty()) {
                                 Logger.w("Detectable catalog came back empty; keeping the old copy")
                                 return@use haveRows
                             }
-                            dao.replaceAll(apps)
+                            dao.replaceAll(parsed.apps, parsed.games)
                             markRefreshed(response.header("ETag"))
-                            Logger.i("Detectable catalog updated: ${apps.size} Android packages")
+                            Logger.i(
+                                "Detectable catalog updated: ${parsed.games.size} games, " +
+                                    "${parsed.apps.size} Android packages"
+                            )
                             true
                         }
                         else -> {

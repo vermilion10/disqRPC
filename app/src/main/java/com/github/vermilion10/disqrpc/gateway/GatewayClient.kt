@@ -40,7 +40,8 @@ fun interface GatewayLog {
  */
 class GatewayClient(
     private val transport: GatewayTransport,
-    private val identityProvider: () -> GatewayIdentity?,
+    /** May throw [IllegalArgumentException]; its message becomes the failure reason. */
+    private val identityProvider: () -> GatewayIdentity,
     private val scope: CoroutineScope,
     private val log: GatewayLog = GatewayLog.None,
     private val random: Random = Random.Default,
@@ -147,9 +148,10 @@ class GatewayClient(
             log(GatewayLog.Level.DEBUG, "Connect ignored: already connected or connecting")
             return
         }
-        val id = identityProvider()
-        if (id == null) {
-            _state.value = GatewayState.Failed("No token saved")
+        val id = try {
+            identityProvider()
+        } catch (e: IllegalArgumentException) {
+            _state.value = GatewayState.Failed(e.message ?: "Invalid token")
             return
         }
         identity = id
@@ -398,7 +400,7 @@ class GatewayClient(
 
     private fun sendIdentify() {
         val id = identity ?: return
-        log(GatewayLog.Level.INFO, "Identifying (bot=${id.isBot})")
+        log(GatewayLog.Level.INFO, "Identifying")
         send(JSONObject().put("op", OP_IDENTIFY).put("d", id.identifyPayload(presence)))
     }
 

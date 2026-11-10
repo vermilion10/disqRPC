@@ -5,27 +5,39 @@ import com.google.gson.stream.JsonToken
 import java.io.Reader
 
 /**
- * Streams `GET /applications/detectable` (about 13 MB, 25k entries) and keeps only the
- * entries that list a Google Play package in `third_party_skus`. Everything else is
- * skipped without being materialised.
+ * Streams `GET /applications/detectable` (about 13 MB, 25k entries). Every entry becomes a
+ * [DetectableGame] (id, name, icon); entries that list a Google Play package in
+ * `third_party_skus` also become [DetectableApp] rows. Other fields are skipped without
+ * being materialised.
  */
 object DetectableParser {
 
+    data class Result(val apps: List<DetectableApp>, val games: List<DetectableGame>)
+
     private const val GOOGLE_PLAY = "google_play"
 
-    fun parse(source: Reader): List<DetectableApp> {
+    fun parse(source: Reader): Result {
         val apps = LinkedHashMap<String, DetectableApp>()
+        val games = LinkedHashMap<String, DetectableGame>()
         JsonReader(source).use { reader ->
             reader.beginArray()
             while (reader.hasNext()) {
-                readEntry(reader) { app -> apps.putIfAbsent(app.packageName, app) }
+                readEntry(
+                    reader,
+                    onGame = { games.putIfAbsent(it.applicationId, it) },
+                    onApp = { apps.putIfAbsent(it.packageName, it) }
+                )
             }
             reader.endArray()
         }
-        return apps.values.toList()
+        return Result(apps.values.toList(), games.values.toList())
     }
 
-    private inline fun readEntry(reader: JsonReader, emit: (DetectableApp) -> Unit) {
+    private inline fun readEntry(
+        reader: JsonReader,
+        onGame: (DetectableGame) -> Unit,
+        onApp: (DetectableApp) -> Unit
+    ) {
         var id: String? = null
         var name: String? = null
         var iconHash: String? = null
@@ -45,7 +57,9 @@ object DetectableParser {
 
         val appId = id?.takeIf { it.isNotBlank() } ?: return
         val appName = name?.takeIf { it.isNotBlank() } ?: return
-        packages.forEach { emit(DetectableApp(it, appId, appName, iconHash?.takeIf(String::isNotBlank))) }
+        val icon = iconHash?.takeIf(String::isNotBlank)
+        onGame(DetectableGame(appId, appName, icon))
+        packages.forEach { onApp(DetectableApp(it, appId, appName, icon)) }
     }
 
     private fun readPlayPackages(reader: JsonReader): List<String> {

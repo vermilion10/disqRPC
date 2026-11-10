@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Single-color layer for Android 13+ themed icons: the controller and dot, no ring. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <group
+        android:pivotX="54"
+        android:pivotY="56"
+        android:scaleX="0.78"
+        android:scaleY="0.78"
+        android:translateY="-2">
+        <path
+            android:fillColor="#FFFFFFFF"
+            android:fillType="evenOdd"
+            android:pathData="M38,40h32c7,0 11,4 13,10l4,14c2,7 -2,12 -7,12c-4,0 -6,-2 -9,-6l-3,-4h-28l-3,4c-3,4 -5,6 -9,6c-5,0 -9,-5 -7,-12l4,-14c2,-6 6,-10 13,-10z M38,48.5h4v4.5h4.5v4h-4.5v4.5h-4v-4.5h-4.5v-4h4.5z M64,52a3,3 0,1 0,6 0a3,3 0,1 0,-6 0z M69,58.5a3,3 0,1 0,6 0a3,3 0,1 0,-6 0z" />
+    </group>
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M66,36a6,6 0,1 0,12 0a6,6 0,1 0,-12 0z" />
+</vector>

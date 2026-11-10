@@ -20,7 +20,23 @@ data class DetectableApp(
     val iconHash: String?
 ) {
     val iconUrl: String?
-        get() = iconHash?.let { "https://cdn.discordapp.com/app-icons/$applicationId/$it.png?size=512" }
+        get() = DetectableGame.iconUrl(applicationId, iconHash)
+}
+
+/** Any game from the detectable list, Android or not; used to pick one for a custom status. */
+@Entity(tableName = "detectable_games")
+data class DetectableGame(
+    @PrimaryKey val applicationId: String,
+    val name: String,
+    val iconHash: String?
+) {
+    val iconUrl: String?
+        get() = iconUrl(applicationId, iconHash)
+
+    companion object {
+        fun iconUrl(applicationId: String, iconHash: String?): String? =
+            iconHash?.let { "https://cdn.discordapp.com/app-icons/$applicationId/$it.png?size=512" }
+    }
 }
 
 @Dao
@@ -31,15 +47,33 @@ abstract class DetectableAppDao {
     @Query("SELECT COUNT(*) FROM detectable_apps")
     abstract suspend fun count(): Int
 
+    @Query("SELECT COUNT(*) FROM detectable_games")
+    abstract suspend fun gameCount(): Int
+
+    /** Name search; names starting with the query come first, then shorter names. */
+    @Query(
+        "SELECT * FROM detectable_games WHERE name LIKE '%' || :query || '%' " +
+            "ORDER BY (name LIKE :query || '%') DESC, length(name), name LIMIT :limit"
+    )
+    abstract suspend fun searchGames(query: String, limit: Int = 50): List<DetectableGame>
+
     @Query("DELETE FROM detectable_apps")
-    protected abstract suspend fun clear()
+    protected abstract suspend fun clearApps()
+
+    @Query("DELETE FROM detectable_games")
+    protected abstract suspend fun clearGames()
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
-    protected abstract suspend fun insertAll(apps: List<DetectableApp>)
+    protected abstract suspend fun insertApps(apps: List<DetectableApp>)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    protected abstract suspend fun insertGames(games: List<DetectableGame>)
 
     @Transaction
-    open suspend fun replaceAll(apps: List<DetectableApp>) {
-        clear()
-        insertAll(apps)
+    open suspend fun replaceAll(apps: List<DetectableApp>, games: List<DetectableGame>) {
+        clearApps()
+        clearGames()
+        insertApps(apps)
+        insertGames(games)
     }
 }

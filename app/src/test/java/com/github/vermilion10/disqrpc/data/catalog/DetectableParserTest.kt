@@ -7,7 +7,8 @@ import java.io.StringReader
 
 class DetectableParserTest {
 
-    private fun parse(json: String) = DetectableParser.parse(StringReader(json))
+    private fun parse(json: String) = DetectableParser.parse(StringReader(json)).apps
+    private fun parseGames(json: String) = DetectableParser.parse(StringReader(json)).games
 
     @Test
     fun keepsOnlyGooglePlayPackagesWithOnePerPackage() {
@@ -87,5 +88,21 @@ class DetectableParserTest {
         )
         assertEquals(1, apps.size)
         assertEquals("10", apps[0].applicationId)
+    }
+
+    @Test
+    fun everyNamedEntryIsAGameEvenWithoutAndroidPackage() {
+        val games = parseGames(
+            """
+            [
+              {"id": "1", "name": "Desktop Only", "icon_hash": "abc", "third_party_skus": [{"distributor": "steam", "id": "1"}]},
+              {"id": "2", "name": "Mobile", "third_party_skus": [{"distributor": "google_play", "id": "com.x"}]},
+              {"id": "3", "name": "", "third_party_skus": []},
+              {"id": "1", "name": "Duplicate Id"}
+            ]
+            """
+        )
+        assertEquals(listOf("Desktop Only", "Mobile"), games.map { it.name })
+        assertEquals("https://cdn.discordapp.com/app-icons/1/abc.png?size=512", games[0].iconUrl)
     }
 }
