@@ -13,7 +13,8 @@ disqRPC runs in the background, notices when one of your games is open, and puts
 - **Official game matching.** Games in Discord's [detectable applications](https://discord.com/api/v10/applications/detectable) list (about 1,700 Android packages) appear with their official name and icon, like a game detected by desktop Discord.
 - **One-tap adding.** When you open a new app, a notification asks whether to add it. You can also add games from your installed apps or by package name.
 - **Stable elapsed time.** Switching away from a game for less than 30 seconds keeps its timer; leaving for longer clears the presence.
-- **Custom status.** Set your own name, details, state and images, or pick any of the ~25,000 games Discord lists to use its official name and icon. A custom status stays on until you clear it, then game presence takes over again.
+- **Custom status.** Set the activity type, name, details and state (each with an optional link), images with hover text, a timestamp, party size and two buttons, or pick any of the ~25,000 games Discord lists to use its official name and icon. Save statuses as presets and reuse them with one tap. A custom status stays on until you clear it, then game presence takes over again.
+- **In-app sign-in.** Log in on Discord's own page inside the app, which keeps only the session token. Pasting a token still works as a fallback.
 - **Reliable connection.** Resumes the Discord session after short drops instead of signing in again, waits for the network instead of retrying while offline (VPN-aware), and reconnects after Android restarts the app.
 - **Private by default.** Your token is stored encrypted with the Android Keystore. Images from your phone are only uploaded when you turn that on.
 - **Material You design.** Dynamic color, light and dark themes, a navigation rail on tablets and foldables, and a themed launcher icon.
@@ -32,7 +33,7 @@ Build the APK from source (see [Building](#building)) and install it on your pho
 ## Setup
 
 1. **Create a Discord application.** In the [Discord Developer Portal](https://discord.com/developers/applications), create an application and copy its **Application ID**. Its name is what Discord shows for apps that aren't in the game list.
-2. **Add your credentials.** Open **Settings**, paste your user token and the application ID, and tap **Save**.
+2. **Sign in.** Open **Settings** and tap **Log in with Discord**. You sign in on Discord's own page inside the app, which keeps only the session token, encrypted on the device. If a sign-in method doesn't work there, you can paste a token instead. Set the application ID under **Fallback application** and tap **Save application ID**.
 3. **Grant permissions.** The Settings screen shows what is missing:
    - **Notifications**: the connection status and the "Add game?" prompt.
    - **Usage access**: required to detect which game is open.
