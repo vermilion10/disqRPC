@@ -15,7 +15,7 @@ import com.github.vermilion10.disqrpc.data.local.AppDatabase
 import com.github.vermilion10.disqrpc.data.local.GameConfig
 import android.graphics.drawable.Drawable
 import androidx.core.app.NotificationManagerCompat
-import com.github.vermilion10.disqrpc.data.catalog.DetectableApp
+import com.github.vermilion10.disqrpc.data.catalog.OfficialGame
 import com.github.vermilion10.disqrpc.data.catalog.DetectableCatalog
 import com.github.vermilion10.disqrpc.data.catalog.DetectableGame
 import com.github.vermilion10.disqrpc.data.local.StatusPreset
@@ -47,9 +47,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val appSettings = AppSettings(application)
     private val catalog = DetectableCatalog.get(application)
 
-    /** Saved games that are in Discord's detectable list, keyed by package name. */
-    val catalogMatches: StateFlow<Map<String, DetectableApp>> = gameConfigDao.getAllConfigs()
-        .map { configs -> configs.mapNotNull { c -> catalog.lookup(c.packageName)?.let { c.packageName to it } }.toMap() }
+    /** Saved games shown under a Discord application (matched or linked), keyed by package. */
+    val catalogMatches: StateFlow<Map<String, OfficialGame>> = gameConfigDao.getAllConfigs()
+        .map { configs -> configs.mapNotNull { c -> catalog.officialFor(c)?.let { c.packageName to it } }.toMap() }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
 
     val logs: StateFlow<List<com.github.vermilion10.disqrpc.util.Logger.LogEntry>> = com.github.vermilion10.disqrpc.util.Logger.logs

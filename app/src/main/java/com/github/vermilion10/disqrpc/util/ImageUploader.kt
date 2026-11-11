@@ -29,6 +29,15 @@ object ImageUploader {
                 mime.contains("webp") -> "webp"
                 else -> "png"
             }
+            upload(bytes, mime, ext)
+        } catch (e: Exception) {
+            Logger.e("Image upload failed: ${e.message}")
+            null
+        }
+    }
+
+    fun upload(bytes: ByteArray, mime: String, ext: String): String? {
+        return try {
             val fileBody = bytes.toRequestBody(mime.toMediaType())
             val body = MultipartBody.Builder()
                 .setType(MultipartBody.FORM)

@@ -11,6 +11,7 @@ disqRPC runs in the background, notices when one of your games is open, and puts
 
 - **Automatic game detection.** Uses Android's usage statistics to see which app is open and updates your presence on its own.
 - **Official game matching.** Games in Discord's [detectable applications](https://discord.com/api/v10/applications/detectable) list (about 1,700 Android packages) appear with their official name and icon, like a game detected by desktop Discord.
+- **Games Discord doesn't list.** Link any game to a Discord game by name or application ID to use its official name and icon. Games with no link are shown under your own application with their Google Play icon.
 - **One-tap adding.** When you open a new app, a notification asks whether to add it. You can also add games from your installed apps or by package name.
 - **Stable elapsed time.** Switching away from a game for less than 30 seconds keeps its timer; leaving for longer clears the presence.
 - **Custom status.** Set the activity type, name, details and state (each with an optional link), images with hover text, a timestamp, party size and two buttons, or pick any of the ~25,000 games Discord lists to use its official name and icon. Save statuses as presets and reuse them with one tap. A custom status stays on until you clear it, then game presence takes over again.
@@ -50,6 +51,12 @@ Open a game while connected. The first time, tap **Add** on the "Add to Rich Pre
 You can also tap **Add game** on the Home tab and choose from your installed apps or type a package name such as `com.mojang.minecraftpe`.
 
 Tap a game in the list to rename it, set details, state, an image link or the account status to use while playing, or to remove it. The switch turns a game on or off without removing it.
+
+### Games that aren't matched automatically
+
+Some games aren't in Discord's detectable list, or are listed without their Android package. Open the game, tap **Choose** under **Official game**, and search for it by name. Discord has game pages for more games than the list contains; if search doesn't find one, paste its Discord application ID into the search box instead.
+
+A game that isn't linked is shown under your fallback application with its Google Play icon. For games that aren't on Google Play, the installed app's icon is uploaded instead when **Upload images from this phone** is on in Settings.
 
 ### Custom status
 

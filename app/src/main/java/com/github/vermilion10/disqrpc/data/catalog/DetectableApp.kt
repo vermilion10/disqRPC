@@ -39,10 +39,25 @@ data class DetectableGame(
     }
 }
 
+/** The Discord application a saved game is shown under. */
+data class OfficialGame(
+    val applicationId: String,
+    val name: String,
+    val iconUrl: String?,
+    /** True when the user picked it by hand rather than it being matched automatically. */
+    val linked: Boolean = false
+)
+
 @Dao
 abstract class DetectableAppDao {
     @Query("SELECT * FROM detectable_apps WHERE packageName = :packageName")
     abstract suspend fun get(packageName: String): DetectableApp?
+
+    @Query("SELECT * FROM detectable_games WHERE applicationId = :applicationId")
+    abstract suspend fun getGame(applicationId: String): DetectableGame?
+
+    @Query("SELECT * FROM detectable_games WHERE name = :name COLLATE NOCASE LIMIT 1")
+    abstract suspend fun findGameByName(name: String): DetectableGame?
 
     @Query("SELECT COUNT(*) FROM detectable_apps")
     abstract suspend fun count(): Int

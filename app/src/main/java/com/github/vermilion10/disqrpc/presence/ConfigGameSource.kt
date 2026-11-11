@@ -5,6 +5,7 @@ import android.content.Intent
 import android.content.pm.ApplicationInfo
 import com.github.vermilion10.disqrpc.data.catalog.DetectableCatalog
 import com.github.vermilion10.disqrpc.data.local.AppDatabase
+import com.github.vermilion10.disqrpc.util.AppIconFinder
 import com.github.vermilion10.disqrpc.util.AssetResolver
 import com.github.vermilion10.disqrpc.util.DiscordAssetRegistrar
 import com.github.vermilion10.disqrpc.util.Logger
@@ -20,6 +21,7 @@ class ConfigGameSource(private val context: Context) : GameSource {
     private val catalog = DetectableCatalog.get(context)
     private val tokens = TokenManager(context)
     private val registrar by lazy { DiscordAssetRegistrar(context) }
+    private val iconFinder by lazy { AppIconFinder(context) }
     private val launcher: String? by lazy {
         runCatching {
             val home = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME)
@@ -42,18 +44,20 @@ class ConfigGameSource(private val context: Context) : GameSource {
         // Games in Discord's detectable list are sent under their official application,
         // the same way desktop Discord reports a detected game. Everything else falls
         // back to the user's own application id.
-        val official = catalog.lookup(packageName)
+        val official = catalog.officialFor(config)
         if (official != null) {
             Logger.d("$packageName is Discord app \"${official.name}\" (${official.applicationId})")
         }
+        // Unlisted games, and Discord games without an icon, get their store or app icon
+        // instead of a blank image.
+        val image = config.customLargeImage ?: official?.iconUrl ?: iconFinder.iconFor(packageName)
         return PresencePayloadBuilder.build(
             ActivitySpec(
-                name = config.gameName,
+                name = official?.name ?: config.gameName,
                 appId = official?.applicationId ?: tokens.getApplicationId().orEmpty(),
-                // An official app already shows "Playing <name>"; don't repeat it as details.
-                details = config.customDetails ?: if (official == null) "Playing ${config.gameName}" else null,
+                details = config.customDetails,
                 state = config.customState,
-                largeImage = AssetResolver.resolve(context, registrar, config.customLargeImage ?: official?.iconUrl),
+                largeImage = AssetResolver.resolve(context, registrar, image),
                 smallImage = AssetResolver.resolve(context, registrar, config.customSmallImage),
                 startTime = startedAt,
                 accountStatus = config.status

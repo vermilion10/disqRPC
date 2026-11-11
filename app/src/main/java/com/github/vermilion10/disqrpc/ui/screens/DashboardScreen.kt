@@ -56,7 +56,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.github.vermilion10.disqrpc.data.catalog.DetectableApp
+import com.github.vermilion10.disqrpc.data.catalog.DetectableGame
+import com.github.vermilion10.disqrpc.data.catalog.OfficialGame
 import com.github.vermilion10.disqrpc.data.local.GameConfig
 import com.github.vermilion10.disqrpc.ui.MainViewModel
 import com.github.vermilion10.disqrpc.ui.StatusDropdown
@@ -167,6 +168,8 @@ fun DashboardScreen(
     editing?.let { game ->
         EditGameDialog(
             game = game,
+            official = matches[game.packageName],
+            search = viewModel::searchOfficialGames,
             onDismiss = { editing = null },
             onSave = { updated ->
                 viewModel.updateGameConfig(updated)
@@ -261,7 +264,7 @@ private fun ConnectionCard(
 @Composable
 private fun GameRow(
     game: GameConfig,
-    official: DetectableApp?,
+    official: OfficialGame?,
     appIcon: Any?,
     onToggle: () -> Unit,
     onClick: () -> Unit
@@ -290,7 +293,11 @@ private fun GameRow(
                             modifier = Modifier.size(16.dp),
                             tint = MaterialTheme.colorScheme.primary
                         )
-                        Text("Official Discord game")
+                        Text(
+                            if (official.linked) "Linked to ${official.name}" else "Official Discord game",
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
                     }
                 } else {
                     Text(game.packageName, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -310,11 +317,17 @@ private fun Modifier.clipToMediumShape(): Modifier =
 @Composable
 fun EditGameDialog(
     game: GameConfig,
+    official: OfficialGame?,
+    search: suspend (String) -> List<DetectableGame>,
     onDismiss: () -> Unit,
     onSave: (GameConfig) -> Unit,
     onDelete: () -> Unit
 ) {
     var gameName by remember(game) { mutableStateOf(game.gameName) }
+    // A hand-picked link; an automatic match only shows here while nothing is linked.
+    var link by remember(game) { mutableStateOf(official?.takeIf { it.linked }) }
+    var showPicker by remember { mutableStateOf(false) }
+    val shown = link ?: official?.takeIf { !it.linked }
     var details by remember(game) { mutableStateOf(game.customDetails.orEmpty()) }
     var state by remember(game) { mutableStateOf(game.customState.orEmpty()) }
     var largeImage by remember(game) { mutableStateOf(game.customLargeImage.orEmpty()) }
@@ -332,6 +345,15 @@ fun EditGameDialog(
                     game.packageName,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                OfficialGameField(
+                    name = shown?.name,
+                    iconUrl = shown?.iconUrl,
+                    onChoose = { showPicker = true },
+                    onClear = if (link != null) ({ link = null }) else null,
+                    chosenHint = if (link != null) "Linked by you. Shown under this Discord game."
+                    else "Matched automatically from Discord's game list.",
+                    emptyHint = "Not in Discord's game list. Link a Discord game to use its name and icon."
                 )
                 OutlinedTextField(
                     value = gameName,
@@ -373,7 +395,10 @@ fun EditGameDialog(
                         customDetails = details.ifBlank { null },
                         customState = state.ifBlank { null },
                         customLargeImage = largeImage.ifBlank { null },
-                        status = status
+                        status = status,
+                        linkedAppId = link?.applicationId,
+                        linkedAppName = link?.name,
+                        linkedAppIconUrl = link?.iconUrl
                     )
                 )
             }) { Text("Save") }
@@ -390,6 +415,17 @@ fun EditGameDialog(
             }
         }
     )
+
+    if (showPicker) {
+        OfficialGamePicker(
+            search = search,
+            onPick = {
+                link = OfficialGame(it.applicationId, it.name, it.iconUrl, linked = true)
+                showPicker = false
+            },
+            onDismiss = { showPicker = false }
+        )
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)

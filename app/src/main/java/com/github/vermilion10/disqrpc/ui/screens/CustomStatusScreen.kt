@@ -419,7 +419,14 @@ private fun NumberField(label: String, value: Int, modifier: Modifier, onChange:
 }
 
 @Composable
-private fun OfficialGameField(name: String?, iconUrl: String?, onChoose: () -> Unit, onClear: () -> Unit) {
+internal fun OfficialGameField(
+    name: String?,
+    iconUrl: String?,
+    onChoose: () -> Unit,
+    onClear: (() -> Unit)?,
+    chosenHint: String = "Shown under the game's official Discord app",
+    emptyHint: String = "Optional. Use the name and icon of any game Discord lists."
+) {
     OutlinedCard(modifier = Modifier.fillMaxWidth()) {
         ListItem(
             colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surface),
@@ -428,16 +435,14 @@ private fun OfficialGameField(name: String?, iconUrl: String?, onChoose: () -> U
             },
             headlineContent = { Text(name ?: "Official game") },
             supportingContent = {
-                Text(
-                    if (name != null) "Shown under the game's official Discord app"
-                    else "Optional. Use the name and icon of any game Discord lists."
-                )
+                Text(if (name != null) chosenHint else emptyHint)
             },
             trailingContent = {
-                if (name != null) {
-                    IconButton(onClick = onClear) { Icon(Icons.Default.Clear, contentDescription = "Remove game") }
-                } else {
-                    FilledTonalButton(onClick = onChoose) { Text("Choose") }
+                when {
+                    name != null && onClear != null ->
+                        IconButton(onClick = onClear) { Icon(Icons.Default.Clear, contentDescription = "Remove game") }
+                    name != null -> TextButton(onClick = onChoose) { Text("Change") }
+                    else -> FilledTonalButton(onClick = onChoose) { Text("Choose") }
                 }
             },
             modifier = Modifier.clickable(onClick = onChoose)
@@ -445,9 +450,12 @@ private fun OfficialGameField(name: String?, iconUrl: String?, onChoose: () -> U
     }
 }
 
-/** Searches Discord's detectable list (about 25,000 games) by name. */
+/**
+ * Searches Discord's detectable list (about 25,000 games) by name. A pasted application ID
+ * finds any Discord game, including ones that aren't in the list.
+ */
 @Composable
-private fun OfficialGamePicker(
+internal fun OfficialGamePicker(
     search: suspend (String) -> List<DetectableGame>,
     onPick: (DetectableGame) -> Unit,
     onDismiss: () -> Unit
@@ -475,7 +483,7 @@ private fun OfficialGamePicker(
                 OutlinedTextField(
                     value = query,
                     onValueChange = { query = it },
-                    placeholder = { Text("Search games") },
+                    placeholder = { Text("Game name, ID or game page link") },
                     leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
@@ -485,7 +493,10 @@ private fun OfficialGamePicker(
                         searching && results.isEmpty() ->
                             CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
                         query.isBlank() -> CenteredHint("Type a game name, for example Minecraft or Valorant.")
-                        results.isEmpty() -> CenteredHint("No games found.")
+                        results.isEmpty() -> CenteredHint(
+                            "No games found. Games missing here can still be found by " +
+                                "pasting their Discord game page link or application ID."
+                        )
                         else -> LazyColumn {
                             items(results, key = { it.applicationId }) { game ->
                                 ListItem(
@@ -513,7 +524,7 @@ private fun OfficialGamePicker(
 }
 
 @Composable
-private fun BoxScope.CenteredHint(text: String) {
+internal fun BoxScope.CenteredHint(text: String) {
     Text(
         text = text,
         style = MaterialTheme.typography.bodyMedium,
